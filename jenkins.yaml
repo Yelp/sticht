@@ -1,0 +1,4 @@
+---
+# See http://y/jenkinsfile for more information
+# about customizing your Jenkins pipeline.
+type: python
