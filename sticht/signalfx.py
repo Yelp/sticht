@@ -1,4 +1,5 @@
 import time
+from typing import Any
 from typing import Callable
 from typing import Dict
 from typing import List
@@ -15,7 +16,10 @@ def _convert_sfx_timestamp(ts: int) -> float:
 
 
 def tail_signalfx(
-    query: str, lookback_seconds: float, callback: Callable, sfx_api_token: str,
+    query: str,
+    lookback_seconds: float,
+    callback: Callable[[Dict, float, float], Any],
+    sfx_api_token: str,
 ) -> None:
     start_timestamp_milliseconds: Optional[float] = None
     if lookback_seconds > 0:
