@@ -41,8 +41,6 @@ def tail_signalfx(
                 stream_label: str = props.get('sf_streamLabel', tsid)
 
                 # sf_key seems to have the list of dimensions with a couple extra stuff
-                # The SignalFX query should minimally specify the 'service' dimension.
-                # .sum(by=['dim1','dim2'])
                 sf_key: List[str] = props.get('sf_key', [])
 
                 dimensions: Dict[str, str] = {dim: props[dim] for dim in sf_key}
