@@ -1,0 +1,24 @@
+dist: xenial
+branches:
+  only:
+    - master
+    - /^v[0-9.]+$/
+    - /^travis-ci-.*$/
+language: python
+cache:
+  pip: true
+  directories:
+    - .tox/
+    - $HOME/.cache/pip-faster/
+    - $HOME/.cache/pre-commit/
+before_cache:
+  # We don't currently use any secure environment variables, but just in case, and also to avoid caches that grow forever, remove log dirs.
+  - rm -rf .tox/*/log .tox/log .tox/*/local/log
+python:
+  - "3.6"
+env:
+  - TOXENV=py36,mypy
+install: pip install coveralls tox==3.2 tox-pip-extensions==1.3.0
+script: tox -i https://pypi.python.org/simple
+after_success:
+  - coveralls
