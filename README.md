@@ -1,5 +1,8 @@
 # Sticht: simple automatic rollbacks
 
+[![Build Status](https://travis-ci.org/Yelp/sticht.svg?branch=master)](https://travis-ci.org/Yelp/sticht)
+[![Coverage Status](https://coveralls.io/repos/github/Yelp/sticht/badge.svg)](https://coveralls.io/github/Yelp/sticht)
+
 Sticht is a library for building deployment workflows.
 Workflows are encoded as state machines, using the [transitions](https://github.com/pytransitions/transitions) library.
 Sticht lets users control the workflow via Slack, and makes it simple to write reusable code that triggers rollbacks when conditions are met, such as metrics exceeding thresholds.
