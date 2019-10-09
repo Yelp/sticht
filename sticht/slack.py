@@ -269,10 +269,10 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
     def update_slack_thread(self, message, color=None):
         if self.slack_client is None:
-            print(f'Would update the slack thread with: {message}')
+            print(f'Would update the slack thread with: {message}', flush=True)
             return
         else:
-            print(f'Updating slack thread with: {message}')
+            print(f'Updating slack thread with: {message}', flush=True)
         if color:
             resp = self.slack_api_call(
                 'chat.postMessage',
