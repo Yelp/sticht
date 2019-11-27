@@ -267,6 +267,28 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                 log.debug(f'Exception encountered when making Slack api call: {e}')
                 return {'ok': False, 'error': f'{type(e).__name__}: {e}'}
 
+    def invite_slack_users(self, usernames, channel):
+        """Invites users into a Slack channel"""
+        if self.slack_client is None:
+            return
+
+        invited, not_invited = [], {}
+        for user in usernames:
+            resp = self.slack_api_call('channels.invite', channel=channel, user=user)
+            if not resp['ok']:
+                if resp['error'] == 'already_in_channel':
+                    invited.append(user)
+                else:
+                    log.warning(
+                        f'Failed to invite user {user} to channel {channel}: '
+                        f"{resp['error']}",
+                    )
+                    not_invited[user] = resp['error']
+            else:
+                log.info(f'Invited user {user} to channel {channel}')
+                invited.append(user)
+        return invited, not_invited
+
     def update_slack_thread(self, message, color=None):
         if self.slack_client is None:
             print(f'Would update the slack thread with: {message}', flush=True)
@@ -297,7 +319,9 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         summary_blocks = self.get_summary_blocks_for_deployment()
         detail_blocks = self.get_detail_slack_blocks_for_deployment()
         resp = self.slack_api_call(
-            'chat.postMessage', blocks=summary_blocks, channel=self.slack_channel,
+            'chat.postMessage',
+            blocks=summary_blocks,
+            channel=self.slack_channel,
         )
         self.slack_ts = resp['message']['ts'] if resp and resp['ok'] else None
 

@@ -211,3 +211,25 @@ def test_slack_api_call_error():
 
     assert not resp['ok']
     assert resp['error'] == 'ValueError: error msg'
+
+
+def test_invite_slack_users():
+    sdp = DummySlackDeploymentProcess()
+    sdp.slack_api_call = mock.Mock(side_effect=[
+        {'ok': True},
+        {'ok': False, 'error': 'already_in_channel'},
+        {'ok': False, 'error': 'user_not_found'},
+    ])
+
+    invited, not_invited = sdp.invite_slack_users(
+        ['a_new_user', 'an_existing_user', 'not_a_user'],
+        'a_channel',
+    )
+
+    assert invited == ['a_new_user', 'an_existing_user']
+    assert not_invited == {'not_a_user': 'user_not_found'}
+    assert sdp.slack_api_call.call_args_list == [
+        mock.call('channels.invite', channel='a_channel', user='a_new_user'),
+        mock.call('channels.invite', channel='a_channel', user='an_existing_user'),
+        mock.call('channels.invite', channel='a_channel', user='not_a_user'),
+    ]
