@@ -13,6 +13,7 @@
 # limitations under the License.
 from unittest import mock
 
+from sticht.slo import get_relevant_slo_files
 from sticht.slo import SLODemultiplexer
 from sticht.slo import SLOWatcher
 from sticht.slo import watch_slos_for_service
@@ -181,3 +182,17 @@ def test_watch_slos_for_service_alerting():
         individual_slo_callback.assert_any_call('slo_2', True)
         # not slo_3 because it was bad before start_timestamp.
         assert all_slos_callback.call_count == 1
+
+
+def test_get_relevant_slo_files():
+    with mock.patch(
+        'sticht.slo.get_slo_files_from_soaconfigs',
+        autospec=False,
+        create=True,  # The test virtualenv doesn't have slo_utils/slo_transcoder installed, since those are internal.
+        return_value=[
+            '/soa_dir/a/slo/clustername.yaml',
+            '/soa_dir/aa/slo/clustername.yaml',
+            '/soa_dir/b/slo/clustername.yaml',
+        ],
+    ):
+        assert get_relevant_slo_files('a', '/soa_dir') == ['/soa_dir/a/slo/clustername.yaml']
