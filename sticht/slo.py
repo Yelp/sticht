@@ -45,15 +45,19 @@ from sticht.signalfx import tail_signalfx
 from sticht.slack import SlackDeploymentProcess
 
 
+def get_relevant_slo_files(service, soa_dir):
+    return [
+        f
+        for f in get_slo_files_from_soaconfigs(soa_dir)
+        if f.startswith(os.path.join(soa_dir, service, ''))
+    ]
+
+
 def get_slos_for_service(service, soa_dir) -> Generator:
     if not SLO_TRANSCODER_LOADED:
         return
 
-    slo_files = [
-        f
-        for f in get_slo_files_from_soaconfigs(soa_dir)
-        if f.startswith(os.path.join(soa_dir, service))
-    ]
+    slo_files = get_relevant_slo_files(service, soa_dir)
     with tempfile.TemporaryDirectory() as temp_dir:
         SFDCS = make_signalform_detector_composite_sink(output_directory=temp_dir)
         sources = [YelpSoaConfigsSource(file) for file in slo_files]
