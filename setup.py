@@ -17,7 +17,7 @@ from setuptools import setup
 
 setup(
     name='sticht',
-    version='1.1.2',
+    version='1.1.3',
     classifiers=[
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
@@ -32,7 +32,7 @@ setup(
     extras_require={
         'yelp_internal': [
             'yelp-clog>=2.12.1',
-            'slo-transcoder>=2.5.6',
+            'slo-transcoder>=3.2.3',
         ],
     },
     packages=find_packages(exclude=('tests*', 'testing*')),
