@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-coverage
+# Coverage==5.0 fails with `Safety level may not be changed inside a transaction`
+# on python 3.6.0 (xenial) (https://github.com/nedbat/coveragepy/issues/703)
+coverage<5.0
 mypy==0.720
 pre-commit>=1.0.0
 pytest
