@@ -52,9 +52,15 @@ def log_error(msg):
         log.error(msg)
 
 
+class NotAButtonPressWebhookEvent:
+    pass
+
+
 class ButtonPress:
     def __init__(self, event):
         self.event = event
+        if 'user' not in event:
+            raise NotAButtonPressWebhookEvent
         self.username = event['user']['username']
         self.response_url = event['response_url']
         # TODO: Handle multiple actions?
@@ -448,6 +454,8 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                         log.debug(
                             'But it was not relevant to this instance of mark-for-deployment',
                         )
+                except NotAButtonPressWebhookEvent:
+                    log.debug('Got a slack event that was not a button press. Ignoring.')
                 except Exception:
                     log_error(f'Exception while processing event: {traceback.format_exc()}')
                     log.debug(f'event: {event!r}')
