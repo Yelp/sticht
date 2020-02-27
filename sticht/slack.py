@@ -388,24 +388,33 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         log.debug('Listening for slack events...')
         try:
             async for event in get_slack_events():
-                log.debug(f'Got slack event: {event}')
-                buttonpress = event_to_buttonpress(event)
-                if self.is_relevant_buttonpress(buttonpress):
-                    self.update_slack_thread(
-                        f'{buttonpress.username} pressed {buttonpress.action}',
-                    )
-                    self.last_action = buttonpress.action
+                try:
+                    log.debug(f'Got slack event: {event}')
+                    buttonpress = event_to_buttonpress(event)
+                    if self.is_relevant_buttonpress(buttonpress):
+                        self.update_slack_thread(
+                            f'{buttonpress.username} pressed {buttonpress.action}',
+                        )
+                        self.last_action = buttonpress.action
 
-                    try:
-                        self.trigger(f'{buttonpress.action}_button_clicked')
-                    except (transitions.core.MachineError, AttributeError):
-                        self.update_slack_thread(f'Error: {traceback.format_exc()}')
-                else:
-                    log.debug(
-                        'But it was not relevant to this instance of mark-for-deployment',
-                    )
+                        try:
+                            self.trigger(f'{buttonpress.action}_button_clicked')
+                        except (transitions.core.MachineError, AttributeError):
+                            self.update_slack_thread(f'Error: {traceback.format_exc()}')
+                    else:
+                        log.debug(
+                            'But it was not relevant to this instance of mark-for-deployment',
+                        )
+                except Exception:
+                    log.error(f'Exception while processing event: {traceback.format_exc()}')
+                    log.debug(f'event: {event!r}')
         except Exception:
-            log.error(f'Saw error in listen_for_slack_events: {traceback.format_exc()}')
+            log.error('\n'.join(
+                'Uncaught error in listen_for_slack_events:',
+                traceback.format_exc(),
+                'Restarting event listener.',
+            ))
+            await self.listen_for_slack_events()
 
     def notify_users(self, message):
         self.update_slack_thread(message)
