@@ -16,13 +16,13 @@ import asyncio
 import json
 import logging
 import traceback
-from typing import Dict
 from typing import List
 from typing import Optional
 
 import requests
 import transitions
 from slackclient import SlackClient
+from typing_extensions import TypedDict
 
 from sticht.state_machine import DeploymentProcess
 
@@ -101,6 +101,33 @@ async def get_slack_events():
         log.warning('Lost connection to scribe host; reconnecting')
 
 
+class SlackBlockText(TypedDict, total=False):
+    type: str
+    text: str
+    emoji: bool
+
+
+class SlackConfirmation(TypedDict, total=False):
+    title: SlackBlockText
+    text: SlackBlockText
+    confirm: SlackBlockText
+    deny: SlackBlockText
+
+
+class SlackBlockElement(TypedDict, total=False):
+    type: str
+    value: str
+    text: SlackBlockText
+    confirm: SlackConfirmation
+
+
+class SlackBlock(TypedDict, total=False):
+    text: SlackBlockText
+    type: str
+    block_id: str
+    elements: SlackBlockElement
+
+
 class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
     default_slack_channel: Optional[str] = None
 
@@ -140,8 +167,8 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
     def get_button_text(self, button, is_active) -> str:
         raise NotImplementedError()
 
-    def get_button_element(self, button, is_active):
-        element = {
+    def get_button_element(self, button, is_active) -> SlackBlockElement:
+        element: SlackBlockElement = {
             'type': 'button',
             'text': {
                 'type': 'plain_text',
@@ -154,7 +181,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             element['confirm'] = self.get_confirmation_object(button)
         return element
 
-    def get_summary_blocks_for_deployment(self) -> List[Dict]:
+    def get_summary_blocks_for_deployment(self) -> List[SlackBlock]:
         deployment_name = self.get_deployment_name()
         progress = self.get_progress(summary=True)
         button_elements = self.get_button_elements()
@@ -162,7 +189,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         summary_parts = [deployment_name, progress]
         summary_parts.extend(self.get_extra_summary_parts_for_deployment())
 
-        blocks = [
+        blocks: List[SlackBlock] = [
             {
                 'type': 'section',
                 'text': {'type': 'mrkdwn', 'text': ' | '.join(summary_parts)},
@@ -185,14 +212,14 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
         return blocks
 
-    def get_detail_slack_blocks_for_deployment(self) -> List[Dict]:
+    def get_detail_slack_blocks_for_deployment(self) -> List[SlackBlock]:
         status = getattr(self, 'state', None) or 'Uninitialized'
         deployment_name = self.get_deployment_name()
         message = self.human_readable_status
         progress = self.get_progress()
         last_action = self.last_action
 
-        blocks = [
+        blocks: List[SlackBlock] = [
             {
                 'type': 'section',
                 'text': {'type': 'mrkdwn', 'text': f'{deployment_name}'},
@@ -210,7 +237,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         blocks.extend(self.get_extra_blocks_for_deployment())
         return blocks
 
-    def get_extra_blocks_for_deployment(self) -> List:
+    def get_extra_blocks_for_deployment(self) -> List[SlackBlock]:
         return []
 
     def get_extra_summary_parts_for_deployment(self) -> List[str]:
@@ -224,7 +251,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             elements.append(self.get_button_element(button=button, is_active=is_active))
         return elements
 
-    def get_confirmation_object(self, action):
+    def get_confirmation_object(self, action) -> SlackConfirmation:
         return {
             'title': {'type': 'plain_text', 'text': 'Are you sure?'},
             'text': {'type': 'mrkdwn', 'text': f'Did you mean to press {action}?'},
