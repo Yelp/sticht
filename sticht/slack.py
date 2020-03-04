@@ -192,7 +192,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         blocks: List[SlackBlock] = [
             {
                 'type': 'section',
-                'text': {'type': 'mrkdwn', 'text': ' | '.join(summary_parts)},
+                'text': {'type': 'mrkdwn', 'text': ' | '.join(summary_parts)[:3000]},
             },
         ]
         if button_elements != []:
@@ -203,12 +203,6 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                     'elements': button_elements,
                 },
             )
-
-        # If blocks is going to be longer than 3kB, trim summary_parts. This should help avoid invalid_blocks error.
-        json_blocks = json.dumps(blocks)
-        if len(json_blocks) > 2900:
-            excess_length = len(json_blocks) - 2900
-            blocks[0]['text']['text'] = blocks[0]['text']['text'][:-excess_length]
 
         return blocks
 
