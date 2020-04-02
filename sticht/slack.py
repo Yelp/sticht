@@ -57,7 +57,7 @@ class ButtonPress:
         # https://api.slack.com/messaging/interactivity/enabling#responding-to-interactions
         # But isn't the api_call method per-se
         # https://github.com/slackapi/python-slackclient/issues/270
-        requests.post(self.response_url, json={'blocks': blocks})
+        requests.post(self.response_url, json={'blocks': truncate_blocks_text(blocks)})
 
 
 def event_to_buttonpress(event):
@@ -192,7 +192,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         blocks: List[SlackBlock] = [
             {
                 'type': 'section',
-                'text': {'type': 'mrkdwn', 'text': ' | '.join(summary_parts)[:3000]},
+                'text': {'type': 'mrkdwn', 'text': ' | '.join(summary_parts)},
             },
         ]
         if button_elements != []:
@@ -296,6 +296,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                 return {'ok': False, 'error': f'{type(e).__name__}: {e}'}
 
     def update_slack_thread(self, message, color=None):
+        message = message[:3000]
         if self.slack_client is None:
             print(f'Would update the slack thread with: {message}', flush=True)
             return
@@ -325,7 +326,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         summary_blocks = self.get_summary_blocks_for_deployment()
         detail_blocks = self.get_detail_slack_blocks_for_deployment()
         resp = self.slack_api_call(
-            'chat.postMessage', blocks=summary_blocks, channel=self.slack_channel,
+            'chat.postMessage', blocks=truncate_blocks_text(summary_blocks), channel=self.slack_channel,
         )
         self.slack_ts = resp['message']['ts'] if resp and resp['ok'] else None
 
@@ -354,7 +355,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
         resp = self.slack_api_call(
             'chat.postMessage',
-            blocks=detail_blocks,
+            blocks=truncate_blocks_text(detail_blocks),
             channel=self.slack_channel,
             thread_ts=self.slack_ts,
         )
@@ -378,7 +379,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             resp = self.slack_api_call(
                 'chat.update',
                 channel=self.slack_channel_id,
-                blocks=summary_blocks,
+                blocks=truncate_blocks_text(summary_blocks),
                 ts=self.slack_ts,
             )
             if resp['ok']:
@@ -391,7 +392,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             resp = self.slack_api_call(
                 'chat.update',
                 channel=self.slack_channel_id,
-                blocks=detail_blocks,
+                blocks=truncate_blocks_text(detail_blocks),
                 ts=self.detail_slack_ts,
             )
             if resp['ok']:
@@ -446,3 +447,14 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
     def notify_users(self, message):
         self.update_slack_thread(message)
+
+
+def truncate_blocks_text(blocks: List[SlackBlock]) -> List[SlackBlock]:
+    """Modifies blocks to restrict all text to 3000 characters."""
+    for block in blocks:
+        try:
+            block['text']['text'] = block['text']['text'][:3000]
+        except KeyError:
+            pass
+
+    return blocks

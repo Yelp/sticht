@@ -211,3 +211,9 @@ def test_slack_api_call_error():
 
     assert not resp['ok']
     assert resp['error'] == 'ValueError: error msg'
+
+
+def test_truncate_blocks_text():
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'A' * 5000}}]
+    truncated = slack.truncate_blocks_text(blocks)
+    assert truncated == [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'A' * 3000}}]
