@@ -39,6 +39,13 @@ SCRIBE_ENV = 'uswest1-prod'
 log = logging.getLogger(__name__)
 
 
+def log_error(msg):
+    # Jenkins logs are full of "ratelimited" errors from sticht. They aren't really
+    # interesting anyway and we just ignore them, so let's blacklist them.
+    if 'ratelimited' not in msg:
+        log.error(msg)
+
+
 class ButtonPress:
     def __init__(self, event):
         self.event = event
@@ -318,7 +325,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             )
 
         if resp['ok'] is not True:
-            log.error(f"Posting to slack failed: {resp['error']}")
+            log_error(f"Posting to slack failed: {resp['error']}")
 
     def send_initial_slack_message(self):
         if self.slack_client is None:
@@ -346,12 +353,12 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                 self.send_initial_slack_message()
                 return
             else:
-                log.error('Continuing without Slack')
+                log_error('Continuing without Slack')
                 self.slack_client = None
                 return
 
         if resp['ok'] is not True:
-            log.error(f"Posting to slack failed: {resp['error']}")
+            log_error(f"Posting to slack failed: {resp['error']}")
 
         resp = self.slack_api_call(
             'chat.postMessage',
@@ -362,9 +369,9 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         self.detail_slack_ts = resp['message']['ts'] if resp and resp['ok'] else None
 
         if resp['ok'] is not True:
-            log.error(f"Posting detail to slack failed: {resp['error']}")
+            log_error(f"Posting detail to slack failed: {resp['error']}")
             if resp['error'] == 'invalid_blocks':
-                log.error(f'Blocks: {detail_blocks!r}')
+                log_error(f'Blocks: {detail_blocks!r}')
 
     def update_slack(self):
         if self.slack_client is None:
@@ -386,7 +393,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                 self.old_summary_blocks_str = summary_blocks_str
             else:
                 self.old_summary_blocks_str = ''  # So we retry next time.
-                log.error(f"Posting to slack failed: {resp['error']}")
+                log_error(f"Posting to slack failed: {resp['error']}")
 
         if self.detail_blocks_str != detail_blocks_str:
             resp = self.slack_api_call(
@@ -399,7 +406,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                 self.old_detail_blocks_str = detail_blocks_str
             else:
                 self.old_detail_blocks_str = ''  # So we retry next time.
-                log.error(f"Posting detail to slack failed: {resp['error']}")
+                log_error(f"Posting detail to slack failed: {resp['error']}")
 
     def update_slack_status(self, message):
         self.human_readable_status = message
@@ -435,10 +442,10 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                             'But it was not relevant to this instance of mark-for-deployment',
                         )
                 except Exception:
-                    log.error(f'Exception while processing event: {traceback.format_exc()}')
+                    log_error(f'Exception while processing event: {traceback.format_exc()}')
                     log.debug(f'event: {event!r}')
         except Exception:
-            log.error('\n'.join(
+            log_error('\n'.join(
                 'Uncaught error in listen_for_slack_events:',
                 traceback.format_exc(),
                 'Restarting event listener.',
