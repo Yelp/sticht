@@ -35,7 +35,7 @@ except ImportError:
     construct_conn_msg = None
 
 SLACK_WEBHOOK_STREAM = 'stream_slack_incoming_webhook'
-SCRIBE_ENV = 'uswest1-prod'
+SCRIBE_ENV = 'uswest2-prod'
 log = logging.getLogger(__name__)
 
 
