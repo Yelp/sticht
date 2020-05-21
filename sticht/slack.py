@@ -35,7 +35,11 @@ except ImportError:
     construct_conn_msg = None
 
 SLACK_WEBHOOK_STREAM = 'stream_slack_incoming_webhook'
-SCRIBE_ENV = 'uswest1-prod'
+SCRIBE_ENV = {
+    'region': 'uswest2-prod',
+    'superregion': None,
+    'ecosystem': None,
+}
 log = logging.getLogger(__name__)
 
 
@@ -87,9 +91,7 @@ async def get_slack_events():
         logging.error('Scribereader unavailable. Not tailing slack events.')
         return
 
-    host_and_port = scribereader.get_env_scribe_host(SCRIBE_ENV, True)
-    host = host_and_port['host']
-    port = host_and_port['port']
+    host, port = scribereader.get_tail_host_and_port(SCRIBE_ENV)
 
     while True:
         reader, writer = await asyncio.open_connection(host=host, port=port)
