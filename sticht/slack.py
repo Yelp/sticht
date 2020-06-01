@@ -91,7 +91,7 @@ async def get_slack_events():
         logging.error('Scribereader unavailable. Not tailing slack events.')
         return
 
-    host, port = scribereader.get_tail_host_and_port(SCRIBE_ENV)
+    host, port = scribereader.get_tail_host_and_port(**SCRIBE_ENV)
 
     while True:
         reader, writer = await asyncio.open_connection(host=host, port=port)
