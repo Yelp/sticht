@@ -30,9 +30,11 @@ from sticht.state_machine import DeploymentProcess
 try:
     from scribereader import scribereader
     from clog.readers import construct_conn_msg
+    from clog.readers import find_tail_host
 except ImportError:
     scribereader = None
     construct_conn_msg = None
+    find_tail_host = None
 
 SLACK_WEBHOOK_STREAM = 'stream_slack_incoming_webhook'
 SCRIBE_ENV = {
@@ -91,7 +93,10 @@ async def get_slack_events():
         logging.error('Scribereader unavailable. Not tailing slack events.')
         return
 
-    host, port = scribereader.get_tail_host_and_port(**SCRIBE_ENV)
+    # get_tail_host_and_port returns a fake hostname for some reason, which needs to be passed to find_tail_host to get
+    # an actual hostname.
+    not_a_real_host, port = scribereader.get_tail_host_and_port(**SCRIBE_ENV)
+    host = find_tail_host(not_a_real_host)
 
     while True:
         reader, writer = await asyncio.open_connection(host=host, port=port)
