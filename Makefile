@@ -20,7 +20,11 @@ venv: requirements-dev.txt setup.py tox.ini
 
 .PHONY: test
 test:
+ifeq ($(findstring .yelpcorp.com,$(shell hostname -f)), .yelpcorp.com)
+	tox -e internal
+else
 	tox
+endif
 
 .PHONY: clean
 clean:
