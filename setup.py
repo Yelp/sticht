@@ -28,6 +28,7 @@ setup(
         'transitions',
         'mypy_extensions',
         'signalfx',
+        'typing-extensions',
     ],
     extras_require={
         'yelp_internal': [
