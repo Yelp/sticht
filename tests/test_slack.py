@@ -102,6 +102,34 @@ REAL_ROLLBACK_PRESS = {
     ],
 }  # noqa E501
 
+MIXED_EVENTS_STREAM = [
+    {
+        'type': 'block_actions',
+        'event_id': '123',
+        'user': {
+            'id': 'XXXXXXXXX',
+            'username': 'XXX',
+            'name': 'XXX',
+            'team_id': '1234',
+        },
+        'token': 'xxxx',
+    },
+    {
+        'type': 'event_callback',
+        'token': 'xxxx',
+        'team_id': 'xxxx',
+        'event_id': '789',
+        'event': {
+            'type': 'link_shared',
+            'user': 'ASLKDJA',
+            'channel': 'AKDJL',
+            'message_ts': '1597270855.028300',
+            'thread_ts': '1597096154.261800',
+            'event_ts': '1597270856.073628',
+        },
+    },
+]  # noqa E501
+
 
 class DummySlackDeploymentProcess(slack.SlackDeploymentProcess):
     """A minimum-viable SlackDeploymentProcess subclass."""
@@ -217,3 +245,10 @@ def test_truncate_blocks_text():
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'A' * 5000}}]
     truncated = slack.truncate_blocks_text(blocks)
     assert truncated == [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'A' * 3000}}]
+
+
+def test_is_relevant_event():
+    # First event is useful
+    assert slack.is_relevant_event(MIXED_EVENTS_STREAM[0]) is True
+    # 2nd event should be ignored
+    assert slack.is_relevant_event(MIXED_EVENTS_STREAM[1]) is False
