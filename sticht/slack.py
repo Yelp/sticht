@@ -84,8 +84,16 @@ def parse_webhook_event_json(line):
 
 
 def is_relevant_event(event):
-    # TODO: Implement filtering
-    return True
+    """
+    Filter useful events from the slack webhook stream.
+
+    The event stream might contain mixed Slack API data (Events and Blocks)
+    see more https://api.slack.com/events-api
+    """
+    if event and 'type' in event:
+        if event['type'] == 'block_actions':
+            return True
+    return False
 
 
 async def get_slack_events():
