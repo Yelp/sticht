@@ -114,8 +114,9 @@ class SLODemultiplexer:
 
     def process_datapoint(self, props, datapoint, timestamp) -> None:
         slo_label = props['dimensions']['sf_metric'].rsplit('.', 1)[0]
-        watcher = self.slo_watchers_by_label[slo_label]
-        watcher.process_datapoint(props, datapoint, timestamp)
+        if not slo_label.startswith('_SF_COMP_'):
+            watcher = self.slo_watchers_by_label[slo_label]
+            watcher.process_datapoint(props, datapoint, timestamp)
 
 
 class SLOWatcher:
