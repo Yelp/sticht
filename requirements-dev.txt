@@ -21,7 +21,4 @@ pytest
 # this shouldn't be necessary, but tox can't seem to find the installed slackclient in
 # tests otherwise
 slackclient==1.2.1
-# botocore has explicit lower/upper bounds that pip doesn't see given the way that
-# we install dependencies. this is kind of annoying as we'll need to bump these
-# bounds whenever botocore does the same
-urllib3>=1.25.4,<=1.27
+urllib3==1.26.2

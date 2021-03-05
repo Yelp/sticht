@@ -132,6 +132,11 @@ def test_SLODemultiplexer():
     assert demux.slo_watchers_by_label['slo_3'].process_datapoint.call_count == 1
     demux.slo_watchers_by_label['slo_3'].process_datapoint.reset_mock()
 
+    # SignalFx generated metric ("_SF_COMP*") is discarded
+    demux.process_datapoint(
+        props={'dimensions': {'sf_metric': '_SF_COMP_E123ABC'}}, datapoint=good, timestamp=0.0,
+    )
+
     assert individual_slo_callback.call_count == 0
 
 
