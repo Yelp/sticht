@@ -21,4 +21,4 @@ pytest
 # this shouldn't be necessary, but tox can't seem to find the installed slackclient in
 # tests otherwise
 slackclient==1.2.1
-urllib3==1.26.2
+urllib3==1.26.5
