@@ -444,7 +444,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                     buttonpress = event_to_buttonpress(event)
                     if self.is_relevant_buttonpress(buttonpress):
                         self.update_slack_thread(
-                            f'{buttonpress.username} pressed {buttonpress.action}',
+                            f'<@{buttonpress.username}> pressed {buttonpress.action}',
                         )
                         self.last_action = buttonpress.action
 
