@@ -16,7 +16,11 @@
 minimal: venv
 
 venv: requirements-dev.txt setup.py tox.ini
+ifeq ($(findstring .yelpcorp.com,$(shell hostname -f)), .yelpcorp.com)
+	tox -e venv-internal
+else
 	tox -e venv
+endif
 
 .PHONY: test
 test:
