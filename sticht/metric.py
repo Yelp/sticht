@@ -1,4 +1,4 @@
-# Copyright 2019 Yelp Inc.
+# Copyright 2019-2022 Yelp Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,8 @@
 # limitations under the License.
 import abc
 import threading
-import traceback
 from typing import Any
 from typing import Callable
-from typing import Generator
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -48,51 +46,9 @@ class MetricWatcher:
         self.start_timestamp = start_timestamp
         self.label = label
 
+    @abc.abstractmethod
     def process_datapoint(self, props, datapoint, timestamp) -> None:
-        self.window.append((timestamp, datapoint))
-        self.trim_window()
-
-        if timestamp > self.start_timestamp:
-            self.bad_after_mark = self.is_window_bad()
-        else:
-            self.bad_before_mark = self.is_window_bad()
-
-        old_failing = self.failing
-        self.failing = self.bad_after_mark and not self.bad_before_mark
-
-        if self.failing == (not old_failing):
-            self.callback(self)
-
-    def trim_window(self) -> None:
-        old_window = self.window
-        min_ts = max(ts for ts, d in old_window) - self.window_duration()
-        new_window = [(ts, d) for (ts, d) in old_window if ts > min_ts]
-        self.window = new_window
-
-    def window_duration(self) -> float:
-        """Many of our SLOs are defined with durations of 1 hour or more; this is great if you're trying to avoid being
-        paged, but not helpful for a deployment that you expect to finish within a few minutes. self.max_duration
-        allows us to cap the length of time that we consider. This should make us a bit more sensitive."""
-        return min(self.max_duration, pytimeparse.parse(str(self.metric.config.duration)))
-
-    def is_window_bad(self) -> bool:
-        bad_datapoints = len(
-            [1 for ts, d in self.window if d > self.metric.config.threshold],
-        )
-        return (
-            bad_datapoints / len(self.window)
-        ) >= 1.0 - self.metric.config.percent_of_duration / 100.0
-
-
-def print_exceptions_wrapper(fn):
-    def inner(*args, **kwargs):
-        try:
-            fn(*args, **kwargs)
-        except Exception:
-            traceback.print_exc()
-            raise
-
-    return inner
+        raise NotImplementedError()
 
 
 def watch_metrics_for_service() -> Tuple[List[threading.Thread], List[MetricWatcher]]:
@@ -104,10 +60,6 @@ class MetricSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
 
     @abc.abstractmethod
     def start_metric_watcher_threads(self, service: str, soa_dir: str) -> None:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def get_signalfx_api_token(self) -> str:
         raise NotImplementedError()
     
     @abc.abstractmethod
