@@ -18,6 +18,6 @@ def get_rollback_files_from_soaconfigs(soaconfigs_path: str = DEFAULT_SOA_DIR) -
     return [
         rollback_path
         for rollback_path in glob.glob(
-            os.path.join(soaconfigs_path, '**', 'rollback-*.yaml'), recursive=True,
+            os.path.join(soaconfigs_path, '**', 'rollback-*.yaml'), recursive=False,
         )
     ]

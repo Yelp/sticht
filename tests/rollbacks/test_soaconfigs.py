@@ -61,6 +61,13 @@ def test_get_rollback_files_from_soaconfigs(dir_files, expected_files, tmp_path)
     )
 
 
+def test_get_rollback_files_from_soaconfigs_nested(tmp_path):
+    (tmp_path / 'serviceA/rollback/something/').mkdir(parents=True)
+    (tmp_path / 'serviceA/rollback/something/rollback-test.yaml').touch()
+
+    assert not get_rollback_files_from_soaconfigs(soaconfigs_path=tmp_path)
+
+
 @pytest.mark.parametrize(
     'filename, expected_cluster', (
         ('/nail/etc/services/serviceA/rollback-pnw-devc.yaml', 'pnw-devc'),
