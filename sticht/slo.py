@@ -26,6 +26,10 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
+import splunklib.client
+import splunklib.results
+
+from sticht.types import Emoji
 import pytimeparse
 
 try:
@@ -43,7 +47,6 @@ import tempfile
 
 from sticht.signalfx import tail_signalfx
 from sticht.slack import SlackDeploymentProcess
-
 
 def get_relevant_slo_files(service, soa_dir):
     return [
@@ -118,6 +121,96 @@ class SLODemultiplexer:
             watcher = self.slo_watchers_by_label[slo_label]
             watcher.process_datapoint(props, datapoint, timestamp)
 
+class MetricWatcher:
+    """
+    Base class for the different classes of metric sources that will be used
+    for automatic rollbacks
+    """
+    # TODO: figure out contents of this class in a more thought-out way
+    def __init__(self, label: str, on_failure_callback: Callable[['MetricWatcher'], None]) -> None:
+        # is the metric in question currently failing? (None == unknown)
+        self.failing: Optional[bool] = None
+        # was the metric failing *before* the deployment began? (None == unknown)
+        self.previously_failing: Optional[bool] = None
+        # how should we refer to this metric in Slack?
+        self.label = label
+        # how do we notify that a metric is newly failing?
+        self.on_failure_callback = on_failure_callback
+
+    def query(self) -> None:
+        """
+        Part of the public interface for a MetricWatcher.
+        Should send the configured query to the relevant metric source and
+        compare it against the configured thresholds (and, if failing, invoke
+        the callback held by this class)
+        """
+        raise NotImplementedError
+
+
+class SplunkMetricWatcher(MetricWatcher):
+    def __init__(
+        self,
+        label: str,
+        query: str,
+        on_failure_callback: Callable[['MetricWatcher'], None],
+        splunk_host: str,
+        splunk_port: int,
+        credentials_callback: Callable[[], Tuple[str, str]]
+    ) -> None:
+        super().__init__(label, on_failure_callback)
+        self._query = query
+        # TODO: should we share a global version of this so that we're
+        # not logging in a million times?
+        self._splunk: Optional[splunklib.client.Service] = None
+        self._credentials_callback = credentials_callback
+        self._splunk_host = splunk_host
+        self._splunk_port = splunk_port
+
+    def _splunk_login(self) -> None:
+        user, password = self._credentials_callback()
+        self.splunk = splunklib.client.connect(
+            host=self._splunk_host,
+            port=self._splunk_port,
+            username=user,
+            password=password,
+        )
+
+    # TODO: need to figure out what to do re: min. frequency here
+    # since splunk searches can take a while
+    # TODO: what if a query takes longer than the min. frequency?
+    # do we just cut it off?
+    def query(self) -> None:
+        if not self._splunk:
+            self._splunk_login()
+            assert self._splunk
+
+        # TODO: do we need set set any other kwargs? e.g., earliest_time or output mode?
+        job = self._splunk.search(query=self._query)
+
+        # TODO: how long do we actually want to wait?
+        result_total_wait_time_s = 0
+        # TODO: should this be hardcoded? dynamic? come from user config?
+        result_poll_time_s = 1
+        while not job.is_done():
+            time.sleep(secs=result_poll_time_s)
+            result_total_wait_time_s += result_poll_time_s
+
+        result_reader = splunklib.results.JSONResultsReader(
+            stream=job.results(
+                output_mode='json',
+            ),
+        )
+
+        for result in result_reader:
+            if isinstance(result, splunklib.results.Message):
+                # Diagnostic messages may be returned in the results
+                logger.debug(f"[splunk] {result.type}: {result.message}")
+            elif isinstance(result, dict):
+                # Normal events are returned as dicts
+                print result
+        assert result_reader.is_preview == False
+
+
 
 class SLOWatcher:
     def __init__(
@@ -184,6 +277,12 @@ def print_exceptions_wrapper(fn):
 
     return inner
 
+def watch_metrics_for_service(service: str, soa_dir: str) -> Tuple[List[threading.Thread], List[MetricWatcher]]:
+    threads: List[threading.Thread] = []
+    watchers: List[MetricWatcher] = []
+
+    return threads, watchers
+
 
 def watch_slos_for_service(
     service: str,
@@ -234,8 +333,9 @@ def watch_slos_for_service(
     return threads, watchers
 
 
-class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
-    auto_rollback_delay: float
+class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
+    slo_watchers: Optional[List[SLOWatcher]] = None
+    metric_watchers: Optional[List[MetricWatcher]] = None
 
     def get_extra_blocks_for_deployment(self):
         blocks = []
@@ -252,21 +352,20 @@ class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         if slo_text:
             parts.append(slo_text)
 
+        metric_text = self.get_metric_text(summary=True)
+        if metric_text:
+            parts.append(metric_text)
+
         return parts
 
     def get_slo_text(self, summary: bool) -> str:
-        slo_watchers = getattr(self, 'slo_watchers', None)
-        if slo_watchers is not None and len(slo_watchers) > 0:
-            failing = [w for w in slo_watchers if w.failing]
-
-            # Wrap emojis in this subclass so we can select only the emojis or only the detail sections.
-            class Emoji(str):
-                pass
+        if self.slo_watchers is not None and len(self.slo_watchers) > 0:
+            failing = [w for w in self.slo_watchers if w.failing]
 
             if len(failing) > 0:
                 slo_text_components = [
                     Emoji(':alert:'),
-                    f'{len(failing)} of {len(slo_watchers)} SLOs are failing:\n',
+                    f'{len(failing)} of {len(self.slo_watchers)} SLOs are failing:\n',
                 ]
                 for slo_watcher in failing:
                     slo_text_components.append(f'{slo_watcher.label}\n')
@@ -274,10 +373,10 @@ class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
 
                 unknown = [
                     w
-                    for w in slo_watchers
+                    for w in self.slo_watchers
                     if w.bad_before_mark is None or w.bad_after_mark is None
                 ]
-                bad_before_mark = [w for w in slo_watchers if w.bad_before_mark]
+                bad_before_mark = [w for w in self.slo_watchers if w.bad_before_mark]
                 slo_text_components = []
                 if len(unknown) > 0:
                     slo_text_components.extend(
@@ -299,12 +398,12 @@ class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                     for slo_watcher in bad_before_mark:
                         slo_text_components.append(f'{slo_watcher.label}\n')
 
-                remaining = len(slo_watchers) - len(unknown) - len(bad_before_mark)
+                remaining = len(self.slo_watchers) - len(unknown) - len(bad_before_mark)
 
-                if remaining == len(slo_watchers):
+                if remaining == len(self.slo_watchers):
                     slo_text_components = [
                         Emoji(':ok_hand:'),
-                        f'All {len(slo_watchers)} SLOs are currently passing.',
+                        f'All {len(self.slo_watchers)} SLOs are currently passing.',
                     ]
                 else:
                     if remaining > 0:
@@ -332,12 +431,64 @@ class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         else:
             return ''
 
+
+    def get_metric_text(self, summary: bool) -> str:
+        metric_text_components = []
+        if self.metric_watchers is not None and len(self.metric_watchers) > 0:
+            failing = [w for w in self.metric_watchers if w.failing]
+
+            if failing:
+                metric_text_components = [
+                    Emoji(':alert:'),
+                    f'{len(failing)} of {len(self.metric_watchers)} rollback conditions are failing:\n',
+                ]
+                for _ in failing:
+                    # TODO: figure out how to label these for presentation in slack
+                    pass
+
+                # TODO: add text about going over the allowed failing conditions and automatically rolling back
+                # TODO: add text about ignoring rules that were failing pre-deploy
+                # TODO: add text about # of conditions with no data
+            else:
+                metric_text_components = [
+                    Emoji(':ok_hand:'),
+                    f'All {len(self.metric_watchers)} rollback conditions are currently passing.',
+                ]
+
+            if summary:
+                # For summary, only display emojis.
+                if self.is_terminal_state(self.state):
+                    return ''
+                else:
+                    return ' '.join(
+                        [c for c in metric_text_components if isinstance(c, Emoji)],
+                    )
+            else:
+                # Display all text for non-summary mode, but hide Emojis if we're in a terminal state, to prevent
+                # things like :alert: from blinking until the end of time.
+                if self.is_terminal_state(self.state):
+                    return ' '.join(
+                        [c for c in metric_text_components if not isinstance(c, Emoji)],
+                    )
+                else:
+                    return ' '.join(metric_text_components)
+        else:
+            return ''
+
+
     def start_slo_watcher_threads(self, service: str, soa_dir: str) -> None:
         _, self.slo_watchers = watch_slos_for_service(
             service=service,
             individual_slo_callback=self.individual_slo_callback,
             all_slos_callback=self.all_slos_callback,
             sfx_api_token=self.get_signalfx_api_token(),
+            soa_dir=soa_dir,
+        )
+
+
+    def start_metric_watcher_threads(self, service: str, soa_dir: str) -> None:
+        _, self.metric_watchers = watch_metrics_for_service(
+            service=service,
             soa_dir=soa_dir,
         )
 
@@ -354,10 +505,19 @@ class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         raise NotImplementedError()
 
     def any_slo_failing(self) -> bool:
-        return self.auto_rollbacks_enabled() and any(
+        return self.auto_rollbacks_enabled() and self.slo_watchers is not None and any(
             w.failing for w in self.slo_watchers
         )
 
+    def any_metric_failing(self) -> bool:
+        return self.auto_rollbacks_enabled() and self.metric_watchers is not None and any(
+            w.failing for w in self.metric_watchers
+        )
+
+    def any_rollback_condition_failing(self) -> bool:
+        return self.any_slo_failing() or self.any_metric_failing()
+
+    # TODO: figure out what to do here - duplicate or make slo vs metric a param
     def individual_slo_callback(self, label: str, bad: Optional[bool]) -> None:
         if bad:
             self.update_slack_thread(f'SLO started failing: {label}', color='danger')
