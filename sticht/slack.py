@@ -26,7 +26,6 @@ from typing_extensions import TypedDict
 
 from sticht.state_machine import DeploymentProcess
 
-
 try:
     from scribereader import scribereader
     from clog.readers import construct_conn_msg
