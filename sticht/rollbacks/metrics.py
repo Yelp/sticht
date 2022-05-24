@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable
 from typing import Optional
 from typing import Tuple
 from typing import List
@@ -26,6 +26,15 @@ class MetricWatcher:
         Should send the configured query to the relevant metric source and
         compare it against the configured thresholds (and, if failing, invoke
         the callback held by this class)
+        """
+        raise NotImplementedError
+
+    def process_result(self, result: Any) -> None:
+        """
+        Part of the public interface for a MetricWatcher.
+        Will be called by query() with some data which should be compared
+        against the configured thresholds (and, if failing, invoke the callback
+        held by this class)
         """
         raise NotImplementedError
 

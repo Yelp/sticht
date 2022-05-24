@@ -3,8 +3,13 @@ from typing import Optional, List
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.metrics import MetricWatcher
 from sticht.slack import SlackDeploymentProcess
-
 from sticht.types import Emoji
+from enum import Enum
+from enum import auto
+
+class RollbackResultMode(Enum):
+    RESULTS = auto()
+    VALUE = auto()
 
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     slo_watchers: Optional[List[SLOWatcher]] = None
