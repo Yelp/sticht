@@ -37,4 +37,7 @@ setup(
         ],
     },
     packages=find_packages(exclude=('tests*', 'testing*')),
+    package_data={
+        'sticht': ['py.typed'],
+    },
 )
