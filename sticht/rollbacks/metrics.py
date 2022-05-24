@@ -1,8 +1,10 @@
-from typing import Any, Callable
+import threading
+from typing import Any
+from typing import Callable
+from typing import List
 from typing import Optional
 from typing import Tuple
-from typing import List
-import threading
+
 
 class MetricWatcher:
     """
@@ -10,6 +12,7 @@ class MetricWatcher:
     for automatic rollbacks
     """
     # TODO: figure out contents of this class in a more thought-out way
+
     def __init__(self, label: str, on_failure_callback: Callable[['MetricWatcher'], None]) -> None:
         # is the metric in question currently failing? (None == unknown)
         self.failing: Optional[bool] = None
@@ -38,9 +41,9 @@ class MetricWatcher:
         """
         raise NotImplementedError
 
+
 def watch_metrics_for_service(service: str, soa_dir: str) -> Tuple[List[threading.Thread], List[MetricWatcher]]:
     threads: List[threading.Thread] = []
     watchers: List[MetricWatcher] = []
 
     return threads, watchers
-

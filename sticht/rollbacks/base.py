@@ -1,15 +1,22 @@
 import abc
-from typing import Optional, List, Tuple
-from sticht.rollbacks.slo import SLOWatcher
+from enum import auto
+from enum import Enum
+from typing import List
+from typing import Optional
+from typing import Tuple
+
 from sticht.rollbacks.metrics import MetricWatcher
+from sticht.rollbacks.metrics import watch_metrics_for_service
+from sticht.rollbacks.slo import SLOWatcher
+from sticht.rollbacks.slo import watch_slos_for_service
 from sticht.slack import SlackDeploymentProcess
 from sticht.types import Emoji
-from enum import Enum
-from enum import auto
+
 
 class RollbackResultMode(Enum):
     RESULTS = auto()
     VALUE = auto()
+
 
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     slo_watchers: Optional[List[SLOWatcher]] = None
@@ -109,7 +116,6 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         else:
             return ''
 
-
     def get_metric_text(self, summary: bool) -> str:
         metric_text_components = []
         if self.metric_watchers is not None and len(self.metric_watchers) > 0:
@@ -153,7 +159,6 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         else:
             return ''
 
-
     def start_slo_watcher_threads(self, service: str, soa_dir: str) -> None:
         _, self.slo_watchers = watch_slos_for_service(
             service=service,
@@ -162,7 +167,6 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             sfx_api_token=self.get_signalfx_api_token(),
             soa_dir=soa_dir,
         )
-
 
     def start_metric_watcher_threads(self, service: str, soa_dir: str) -> None:
         _, self.metric_watchers = watch_metrics_for_service(

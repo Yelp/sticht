@@ -1,13 +1,21 @@
+import logging
 import time
-from sticht.rollbacks.base import RollbackResultMode
-from sticht.rollbacks.metrics import MetricWatcher
-from typing import Any, Callable, Dict, List, Tuple, Optional, Union
+from typing import Any
+from typing import Callable
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
+
 import splunklib.client
 import splunklib.results
-import logging
+
+from sticht.rollbacks.base import RollbackResultMode
+from sticht.rollbacks.metrics import MetricWatcher
 
 
 log = logging.getLogger(__name__)
+
 
 class SplunkMetricWatcher(MetricWatcher):
     def __init__(
@@ -18,7 +26,7 @@ class SplunkMetricWatcher(MetricWatcher):
         splunk_host: str,
         splunk_port: int,
         credentials_callback: Callable[[], Tuple[str, str]],
-        result_mode: RollbackResultMode
+        result_mode: RollbackResultMode,
     ) -> None:
         super().__init__(label, on_failure_callback)
         self._query = query
@@ -68,7 +76,7 @@ class SplunkMetricWatcher(MetricWatcher):
         ):
             # Diagnostic messages may be returned in the results
             if isinstance(result, splunklib.results.Message):
-                log.debug(f"[splunk] {result.type}: {result.message}")
+                log.debug(f'[splunk] {result.type}: {result.message}')
             # Normal events are returned as dicts
             elif isinstance(result, dict):
                 results.append(result)
@@ -77,6 +85,6 @@ class SplunkMetricWatcher(MetricWatcher):
 
     def process_result(self, result: List[Dict[Any, Any]]) -> None:
         """
-        We allow 
+        We allow
         """
         pass

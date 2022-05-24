@@ -4,5 +4,3 @@ class Emoji(str):
     when displaying messages in Slack.
     """
     pass
-
-
