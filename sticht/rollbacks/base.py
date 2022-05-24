@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.metrics import MetricWatcher
 from sticht.slack import SlackDeploymentProcess
@@ -172,6 +172,10 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
 
     @abc.abstractmethod
     def get_signalfx_api_token(self) -> str:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_splunk_api_token(self) -> Tuple[str, str]:
         raise NotImplementedError()
 
     @abc.abstractmethod
