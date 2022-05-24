@@ -11,8 +11,10 @@ from sticht.slack import SlackDeploymentProcess
 
 
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
-    slo_watchers: Optional[List[SLOWatcher]] = None
-    metric_watchers: Optional[List[Any]] = None
+    def __init__(self) -> None:
+        super().__init__()
+        self.slo_watchers: Optional[List[SLOWatcher]] = None
+        self.metric_watchers: Optional[List[Any]] = None
 
     def get_extra_blocks_for_deployment(self):
         blocks = []
