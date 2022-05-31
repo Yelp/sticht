@@ -13,11 +13,12 @@ def get_cluster_from_soaconfigs_filename(filename: str) -> str:
     return cluster
 
 
-def get_rollback_files_from_soaconfigs(soaconfigs_path: str = DEFAULT_SOA_DIR) -> List[str]:
+def get_rollback_files_from_soaconfigs(soaconfigs_path: str = DEFAULT_SOA_DIR, service=None) -> List[str]:
     """Get the full path to all autorollback files in soaconfigs"""
+    directory = '**' if service is None else service
     return [
         rollback_path
         for rollback_path in glob.glob(
-            os.path.join(soaconfigs_path, '**', 'rollback-*.yaml'), recursive=False,
+            os.path.join(soaconfigs_path, directory, 'rollback-*.yaml'), recursive=False,
         )
     ]

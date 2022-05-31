@@ -5,16 +5,17 @@ from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Tuple
+from typing import Type
 
 import splunklib.client
 import splunklib.results
 
-from sticht.rollbacks.metrics import MetricWatcher
-
-
+from sticht.rollbacks.types import MetricWatcher
+from sticht.rollbacks.types import SplunkAuth
+from sticht.rollbacks.types import SplunkRule
 log = logging.getLogger(__name__)
 
+DEFAULT_SPLUNK_POLL_S = 1
 MAX_QUERY_TIME_S = 10
 
 
@@ -24,26 +25,33 @@ class SplunkMetricWatcher(MetricWatcher):
         label: str,
         query: str,
         on_failure_callback: Callable[['MetricWatcher'], None],
-        splunk_host: str,
-        splunk_port: int,
-        credentials_callback: Callable[[], Tuple[str, str]],
+        auth_callback: Callable[[], SplunkAuth],
     ) -> None:
         super().__init__(label, on_failure_callback)
         self._query = query
         # TODO: should we share a global version of this so that we're
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
-        self._credentials_callback = credentials_callback
-        self._splunk_host = splunk_host
-        self._splunk_port = splunk_port
+        self._credentials_callback = auth_callback
 
-    def _splunk_login(self) -> None:
-        user, password = self._credentials_callback()
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SplunkMetricWatcher):
+            return NotImplemented
+        return (
+            self.label,
+            self._query,
+        ) == (
+            other.label,
+            other._query,
+        )
+
+    def _splunk_login(self) -> None:  # pragma: no cover
+        auth = self._credentials_callback()
         self._splunk = splunklib.client.connect(
-            host=self._splunk_host,
-            port=self._splunk_port,
-            username=user,
-            password=password,
+            host=auth.host,
+            port=auth.port,
+            username=auth.username,
+            password=auth.password,
         )
 
     def _get_splunk_results(
@@ -53,15 +61,14 @@ class SplunkMetricWatcher(MetricWatcher):
     ) -> Optional[List[Dict[Any, Any]]]:
         result_total_wait_time_s = 0
         # TODO: should this be hardcoded? dynamic? come from user config? something else?
-        result_poll_time_s = 1
         while not job.is_done():
             if result_total_wait_time_s > MAX_QUERY_TIME_S:
                 log.error(f'Waited over {MAX_QUERY_TIME_S}s for query to finish - killing query.')
                 job.cancel()
                 # TODO: should this raise an exception instead?
                 return None
-            time.sleep(secs=result_poll_time_s)
-            result_total_wait_time_s += result_poll_time_s
+            time.sleep(secs=DEFAULT_SPLUNK_POLL_S)
+            result_total_wait_time_s += DEFAULT_SPLUNK_POLL_S
 
         results: List[Dict[Any, Any]] = []
         for result in splunklib.results.JSONResultsReader(
@@ -89,7 +96,6 @@ class SplunkMetricWatcher(MetricWatcher):
         """
         if not self._splunk:
             self._splunk_login()
-            assert self._splunk is not None
 
         # TODO: do we need set set any other kwargs? e.g., earliest_time or output mode?
         job = self._splunk.search(query=self._query)
@@ -103,3 +109,51 @@ class SplunkMetricWatcher(MetricWatcher):
         whether or not to rollback or not
         """
         pass
+
+    @classmethod
+    def from_config(  # type: ignore[override]
+        # we don't care about violating LSP - we just want to follow a given interface
+        cls: Type['SplunkMetricWatcher'],
+        config: SplunkRule,
+        check_interval_s: Optional[float],
+        on_failure_callback: Callable[['MetricWatcher'], None],
+        auth_callback: Callable[[], SplunkAuth],
+    ) -> 'SplunkMetricWatcher':
+        if check_interval_s is not None:
+            log.warning(
+                f'Ignoring check_interval_s of {check_interval_s} and using default of {DEFAULT_SPLUNK_POLL_S}',
+            )
+
+        return cls(
+            config['label'],
+            config['query'],
+            on_failure_callback=on_failure_callback,
+            auth_callback=auth_callback,
+        )
+
+
+def create_splunk_metricwatchers(
+    splunk_conditions: List[SplunkRule],
+    check_interval_s: Optional[float],
+    on_failure_callback: Callable[[MetricWatcher], None],
+    auth_callback: Optional[Callable[[], SplunkAuth]],
+) -> List[SplunkMetricWatcher]:
+    log.info(f'Creating {len(splunk_conditions)} Splunk watchers...')
+
+    if auth_callback is None:
+        raise ValueError('Splunk rules defined, but no auth callback provided')
+
+    watchers = []
+    for splunk_rule in splunk_conditions:
+        log.info(f"Creating Splunk watcher for: {splunk_rule['label']}")
+
+        watchers.append(
+            SplunkMetricWatcher.from_config(
+                config=splunk_rule,
+                check_interval_s=check_interval_s,
+                on_failure_callback=on_failure_callback,
+                auth_callback=auth_callback,
+            ),
+        )
+
+    return watchers

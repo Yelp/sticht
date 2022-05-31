@@ -1,12 +1,12 @@
 import abc
 from typing import List
 from typing import Optional
-from typing import Tuple
 
 from sticht.rollbacks.metrics import MetricWatcher
 from sticht.rollbacks.metrics import watch_metrics_for_service
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.slo import watch_slos_for_service
+from sticht.rollbacks.types import SplunkAuth
 from sticht.slack import Emoji
 from sticht.slack import SlackDeploymentProcess
 
@@ -172,22 +172,27 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         )
 
     def start_metric_watcher_threads(self, service: str, soa_dir: str) -> None:
-        _, self.metric_watchers = watch_metrics_for_service(service=service, soa_dir=soa_dir)
+        _, self.metric_watchers = watch_metrics_for_service(
+            service=service,
+            soa_dir=soa_dir,
+            on_failure_callback=self.individual_metric_callback,
+            on_failure_trigger_callback=self.all_metrics_callback,
+        )
 
     @abc.abstractmethod
-    def get_signalfx_api_token(self) -> str:
+    def get_signalfx_api_token(self) -> str:  # pragma: no cover
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_splunk_api_token(self) -> Tuple[str, str]:
+    def get_splunk_api_token(self) -> SplunkAuth:  # pragma: no cover
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def auto_rollbacks_enabled(self) -> bool:
+    def auto_rollbacks_enabled(self) -> bool:  # pragma: no cover
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_auto_rollback_delay(self) -> float:
+    def get_auto_rollback_delay(self) -> float:  # pragma: no cover
         raise NotImplementedError()
 
     def any_slo_failing(self) -> bool:
