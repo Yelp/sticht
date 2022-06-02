@@ -12,9 +12,17 @@ from sticht.slack import SlackDeploymentProcess
 
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     def __init__(self) -> None:
-        super().__init__()
         self.slo_watchers: Optional[List[SLOWatcher]] = None
         self.metric_watchers: Optional[List[Any]] = None
+        # normally you'd expect that this be called first thing in __init__,
+        # but the way this class is constructed means that one of the methods called
+        # by our superclass's constructor will throw when it tries to access the watcher
+        # lists defined above...thus this fun (which actually mirrors how we later construct
+        # a subclass of this class is PaaSTA!)
+        # NOTE: this does mean that some degree of care must be taken when subclassing this class
+        # as one could easily get into the same situation OR end up overwriting initializations done
+        # by the subclass upon calling this constructor
+        super().__init__()
 
     def get_extra_blocks_for_deployment(self):
         blocks = []
