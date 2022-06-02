@@ -52,6 +52,14 @@ def log_error(msg):
         log.error(msg)
 
 
+class Emoji(str):
+    """
+    Wrap emojis in this subclass so we can select only the emojis or only the detail sections
+    when displaying messages in Slack.
+    """
+    pass
+
+
 class ButtonPress:
     def __init__(self, event):
         self.event = event

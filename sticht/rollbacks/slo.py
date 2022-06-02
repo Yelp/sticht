@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import abc
 import functools
 import os
 import textwrap
@@ -42,7 +41,6 @@ except ImportError:
 import tempfile
 
 from sticht.signalfx import tail_signalfx
-from sticht.slack import SlackDeploymentProcess
 
 
 def get_relevant_slo_files(service, soa_dir):
@@ -232,152 +230,3 @@ def watch_slos_for_service(
         watchers.extend(demux.slo_watchers_by_label.values())
 
     return threads, watchers
-
-
-class SLOSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
-    auto_rollback_delay: float
-
-    def get_extra_blocks_for_deployment(self):
-        blocks = []
-        slo_text = self.get_slo_text(summary=False)
-        if slo_text:
-            blocks.append(
-                {'type': 'section', 'text': {'type': 'mrkdwn', 'text': slo_text}},
-            )
-        return blocks
-
-    def get_extra_summary_parts_for_deployment(self) -> List[str]:
-        parts = super().get_extra_summary_parts_for_deployment()
-        slo_text = self.get_slo_text(summary=True)
-        if slo_text:
-            parts.append(slo_text)
-
-        return parts
-
-    def get_slo_text(self, summary: bool) -> str:
-        slo_watchers = getattr(self, 'slo_watchers', None)
-        if slo_watchers is not None and len(slo_watchers) > 0:
-            failing = [w for w in slo_watchers if w.failing]
-
-            # Wrap emojis in this subclass so we can select only the emojis or only the detail sections.
-            class Emoji(str):
-                pass
-
-            if len(failing) > 0:
-                slo_text_components = [
-                    Emoji(':alert:'),
-                    f'{len(failing)} of {len(slo_watchers)} SLOs are failing:\n',
-                ]
-                for slo_watcher in failing:
-                    slo_text_components.append(f'{slo_watcher.label}\n')
-            else:
-
-                unknown = [
-                    w
-                    for w in slo_watchers
-                    if w.bad_before_mark is None or w.bad_after_mark is None
-                ]
-                bad_before_mark = [w for w in slo_watchers if w.bad_before_mark]
-                slo_text_components = []
-                if len(unknown) > 0:
-                    slo_text_components.extend(
-                        [
-                            Emoji(':thinking_face:'),
-                            f'{len(unknown)} SLOs are missing data:\n',
-                        ],
-                    )
-                    for slo_watcher in unknown:
-                        slo_text_components.append(f'{slo_watcher.label}\n')
-
-                if len(bad_before_mark) > 0:
-                    slo_text_components.extend(
-                        [
-                            Emoji(':grimacing:'),
-                            f'{len(bad_before_mark)} SLOs were failing before deploy, and will be ignored:\n',
-                        ],
-                    )
-                    for slo_watcher in bad_before_mark:
-                        slo_text_components.append(f'{slo_watcher.label}\n')
-
-                remaining = len(slo_watchers) - len(unknown) - len(bad_before_mark)
-
-                if remaining == len(slo_watchers):
-                    slo_text_components = [
-                        Emoji(':ok_hand:'),
-                        f'All {len(slo_watchers)} SLOs are currently passing.',
-                    ]
-                else:
-                    if remaining > 0:
-                        slo_text_components.append(
-                            f'The remaining {remaining} SLOs are currently passing.',
-                        )
-
-            if summary:
-                # For summary, only display emojis.
-                if self.is_terminal_state(self.state):
-                    return ''
-                else:
-                    return ' '.join(
-                        [c for c in slo_text_components if isinstance(c, Emoji)],
-                    )
-            else:
-                # Display all text for non-summary mode, but hide Emojis if we're in a terminal state, to prevent
-                # things like :alert: from blinking until the end of time.
-                if self.is_terminal_state(self.state):
-                    return ' '.join(
-                        [c for c in slo_text_components if not isinstance(c, Emoji)],
-                    )
-                else:
-                    return ' '.join(slo_text_components)
-        else:
-            return ''
-
-    def start_slo_watcher_threads(self, service: str, soa_dir: str) -> None:
-        _, self.slo_watchers = watch_slos_for_service(
-            service=service,
-            individual_slo_callback=self.individual_slo_callback,
-            all_slos_callback=self.all_slos_callback,
-            sfx_api_token=self.get_signalfx_api_token(),
-            soa_dir=soa_dir,
-        )
-
-    @abc.abstractmethod
-    def get_signalfx_api_token(self) -> str:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def auto_rollbacks_enabled(self) -> bool:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def get_auto_rollback_delay(self) -> float:
-        raise NotImplementedError()
-
-    def any_slo_failing(self) -> bool:
-        return self.auto_rollbacks_enabled() and any(
-            w.failing for w in self.slo_watchers
-        )
-
-    def individual_slo_callback(self, label: str, bad: Optional[bool]) -> None:
-        if bad:
-            self.update_slack_thread(f'SLO started failing: {label}', color='danger')
-        else:
-            self.update_slack_thread(f'SLO is now OK: {label}', color='good')
-
-    def all_slos_callback(self, bad: bool) -> None:
-        if bad:
-            self.trigger('slos_started_failing')
-        else:
-            self.trigger('slos_stopped_failing')
-        self.update_slack()
-
-    def start_auto_rollback_countdown(self, extra_text) -> None:
-        self.start_timer(
-            self.get_auto_rollback_delay(),
-            'rollback_slo_failure',
-            'automatically roll back',
-            extra_text=extra_text,
-        )
-
-    def cancel_auto_rollback_countdown(self) -> None:
-        self.cancel_timer('rollback_slo_failure')

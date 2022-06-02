@@ -13,10 +13,10 @@
 # limitations under the License.
 from unittest import mock
 
-from sticht.slo import get_relevant_slo_files
-from sticht.slo import SLODemultiplexer
-from sticht.slo import SLOWatcher
-from sticht.slo import watch_slos_for_service
+from sticht.rollbacks.slo import get_relevant_slo_files
+from sticht.rollbacks.slo import SLODemultiplexer
+from sticht.rollbacks.slo import SLOWatcher
+from sticht.rollbacks.slo import watch_slos_for_service
 
 
 def test_SLOWatcher_window_trimming():
@@ -159,10 +159,10 @@ def test_watch_slos_for_service_alerting():
     all_slos_callback = mock.Mock()
 
     with mock.patch(
-        'sticht.slo.get_slos_for_service',
+        'sticht.rollbacks.slo.get_slos_for_service',
         return_value=(((sink), ('fake query')),),
         autospec=True,
-    ), mock.patch('sticht.slo.tail_signalfx', autospec=True):
+    ), mock.patch('sticht.rollbacks.slo.tail_signalfx', autospec=True):
         threads, watchers = watch_slos_for_service(
             service='service',
             individual_slo_callback=individual_slo_callback,
@@ -191,7 +191,7 @@ def test_watch_slos_for_service_alerting():
 
 def test_get_relevant_slo_files():
     with mock.patch(
-        'sticht.slo.get_slo_files_from_soaconfigs',
+        'sticht.rollbacks.slo.get_slo_files_from_soaconfigs',
         autospec=False,
         create=True,  # The test virtualenv doesn't have slo_utils/slo_transcoder installed, since those are internal.
         return_value=[
