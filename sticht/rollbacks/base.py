@@ -1,9 +1,10 @@
 import abc
-from typing import Any
 from typing import List
 from typing import Optional
 from typing import Tuple
 
+from sticht.rollbacks.metrics import MetricWatcher
+from sticht.rollbacks.metrics import watch_metrics_for_service
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.slo import watch_slos_for_service
 from sticht.slack import Emoji
@@ -13,7 +14,7 @@ from sticht.slack import SlackDeploymentProcess
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     def __init__(self) -> None:
         self.slo_watchers: Optional[List[SLOWatcher]] = None
-        self.metric_watchers: Optional[List[Any]] = None
+        self.metric_watchers: Optional[List[MetricWatcher]] = None
         # normally you'd expect that this be called first thing in __init__,
         # but the way this class is constructed means that one of the methods called
         # by our superclass's constructor will throw when it tries to access the watcher
@@ -171,7 +172,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         )
 
     def start_metric_watcher_threads(self, service: str, soa_dir: str) -> None:
-        raise NotImplementedError()
+        _, self.metric_watchers = watch_metrics_for_service(service=service, soa_dir=soa_dir)
 
     @abc.abstractmethod
     def get_signalfx_api_token(self) -> str:
