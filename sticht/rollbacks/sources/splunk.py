@@ -9,7 +9,7 @@ from typing import Optional
 import splunklib.client
 import splunklib.results
 
-from sticht.rollbacks.metrics import MetricWatcher
+from sticht.rollbacks.types import MetricWatcher
 from sticht.rollbacks.types import SplunkAuth
 
 

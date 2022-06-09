@@ -3,10 +3,10 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-from sticht.rollbacks.metrics import MetricWatcher
 from sticht.rollbacks.metrics import watch_metrics_for_service
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.slo import watch_slos_for_service
+from sticht.rollbacks.types import MetricWatcher
 from sticht.slack import Emoji
 from sticht.slack import SlackDeploymentProcess
 
