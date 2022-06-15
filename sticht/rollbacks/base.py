@@ -1,12 +1,12 @@
 import abc
 from typing import List
 from typing import Optional
-from typing import Tuple
 
 from sticht.rollbacks.metrics import watch_metrics_for_service
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.slo import watch_slos_for_service
 from sticht.rollbacks.types import MetricWatcher
+from sticht.rollbacks.types import SplunkAuth
 from sticht.slack import Emoji
 from sticht.slack import SlackDeploymentProcess
 
@@ -179,7 +179,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_splunk_api_token(self) -> Tuple[str, str]:
+    def get_splunk_api_token(self) -> SplunkAuth:
         raise NotImplementedError()
 
     @abc.abstractmethod
