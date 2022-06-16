@@ -137,10 +137,48 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 # TODO: add text about ignoring rules that were failing pre-deploy
                 # TODO: add text about # of conditions with no data
             else:
-                metric_text_components = [
-                    Emoji(':ok_hand:'),
-                    f'All {len(self.metric_watchers)} rollback conditions are currently passing.',
+                unknown = [
+                    w
+                    for w in self.metric_watchers
+                    if w.previously_failing is None or w.previously_failing is None
                 ]
+
+                previously_failing = [w for w in self.metric_watchers if w.previously_failing]
+                metric_text_components = []
+                if unknown:
+                    metric_text_components.extend(
+                        [
+                            Emoji(':thinking_face:'),
+                            f'{len(unknown)} Rollback conditions are missing data:\n',
+                        ],
+                    )
+                    for metric_watcher in unknown:
+                        metric_text_components.append(f'{metric_watcher.label}\n')
+                
+                if len(previously_failing) > 0:
+                    metric_text_components.extend(
+                        [
+                            Emoji(':grimacing:'),
+                            f'{len(previously_failing)} rollback conditions were failing before deploy, and will be ignored:\n',
+                        ],
+                    )
+                    for metric_watcher in previously_failing:
+                        metric_text_components.append(f'{metric_watcher.label}\n')
+
+                remaining = len(self.metric_watchers) - len(unknown) - len(previously_failing)
+
+                if remaining == len(self.metric_watchers):
+                    metric_text_components = [
+                        Emoji(':ok_hand:'),
+                        f'All {len(self.metric_watchers)} rollback conditions are currently passing.',
+                    ]
+                else:
+                    if remaining:
+                        metric_text_components.append(
+                            f'The remaining {remaining} rollback conditions are currently passing.',
+                        )
+
+                
 
             if summary:
                 # For summary, only display emojis.
