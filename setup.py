@@ -28,6 +28,7 @@ setup(
         'transitions',
         'mypy_extensions',
         'signalfx',
+        'splunk-sdk',
         'typing-extensions',
     ],
     extras_require={
