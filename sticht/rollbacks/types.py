@@ -1,7 +1,39 @@
+import abc
 from typing import Any
 from typing import Callable
 from typing import NamedTuple
 from typing import Optional
+from typing import Type
+from typing import TypeVar
+from typing import Union
+
+from typing_extensions import Literal
+from typing_extensions import NotRequired
+from typing_extensions import TypedDict
+
+MetricWatcherT = TypeVar('MetricWatcherT', bound='MetricWatcher')
+
+
+class SplunkAuth(NamedTuple):
+    host: str
+    port: int
+    username: str
+    password: str
+
+
+class BaseRule(TypedDict):
+    label: str
+    query: str
+    # one of these will always be set by the time we see a piece of config
+    lower_bound: NotRequired[float]
+    upper_bound: NotRequired[float]
+    # defaults to False
+    dry_run: NotRequired[bool]
+
+
+class SplunkRule(BaseRule):
+    # defaults to "number"
+    query_type: NotRequired[Union[Literal['number'], Literal['results']]]
 
 
 class MetricWatcher:
@@ -39,9 +71,13 @@ class MetricWatcher:
         """
         raise NotImplementedError()
 
-
-class SplunkAuth(NamedTuple):
-    host: str
-    port: int
-    username: str
-    password: str
+    @classmethod
+    @abc.abstractmethod
+    def from_config(
+        cls: Type[MetricWatcherT],
+        config: BaseRule,
+        check_interval_s: Optional[float],
+        on_failure_callback: Callable[['MetricWatcher'], None],
+        auth_callback: Optional[Callable[[], Any]] = None,
+    ) -> MetricWatcherT:
+        raise NotImplementedError()

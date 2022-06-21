@@ -139,3 +139,27 @@ def test_login_calls_auth_callback():
     ):
         watcher._splunk_login()
     mock_credentials_callback.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    'check_interval_s', (
+        None,
+        0,
+        123,
+    ),
+)
+def test_from_config(check_interval_s):
+    assert SplunkMetricWatcher.from_config(
+        config={
+            'label': 'label',
+            'query': 'query',
+        },
+        check_interval_s=check_interval_s,
+        on_failure_callback=lambda _: None,
+        auth_callback=lambda: TEST_SPLUNK_AUTH,
+    ) == SplunkMetricWatcher(
+        label='label',
+        query='query',
+        on_failure_callback=lambda _: None,
+        auth_callback=lambda: TEST_SPLUNK_AUTH,
+    )

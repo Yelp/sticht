@@ -5,12 +5,14 @@ from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Type
 
 import splunklib.client
 import splunklib.results
 
 from sticht.rollbacks.types import MetricWatcher
 from sticht.rollbacks.types import SplunkAuth
+from sticht.rollbacks.types import SplunkRule
 
 
 log = logging.getLogger(__name__)
@@ -112,3 +114,51 @@ class SplunkMetricWatcher(MetricWatcher):
         whether or not to rollback or not
         """
         pass
+
+    @classmethod
+    def from_config(  # type: ignore[override]
+        # we don't care about violating LSP - we just want to follow a given interface
+        cls: Type['SplunkMetricWatcher'],
+        config: SplunkRule,
+        check_interval_s: Optional[float],
+        on_failure_callback: Callable[['MetricWatcher'], None],
+        auth_callback: Callable[[], SplunkAuth],
+    ) -> 'SplunkMetricWatcher':
+        if check_interval_s is not None:
+            log.warning(
+                f'Ignoring check_interval_s of {check_interval_s} and using default of {DEFAULT_SPLUNK_POLL_S}',
+            )
+
+        return cls(
+            config['label'],
+            config['query'],
+            on_failure_callback=on_failure_callback,
+            auth_callback=auth_callback,
+        )
+
+
+def create_splunk_metricwatchers(
+    splunk_conditions: List[SplunkRule],
+    check_interval_s: Optional[float],
+    on_failure_callback: Callable[[MetricWatcher], None],
+    auth_callback: Optional[Callable[[], SplunkAuth]],
+) -> List[SplunkMetricWatcher]:
+    log.info(f'Creating {len(splunk_conditions)} Splunk watchers...')
+
+    if auth_callback is None:
+        raise ValueError('Splunk rules defined, but no auth callback provided')
+
+    watchers = []
+    for splunk_rule in splunk_conditions:
+        log.info(f"Creating Splunk watcher for: {splunk_rule['label']}")
+
+        watchers.append(
+            SplunkMetricWatcher.from_config(
+                config=splunk_rule,
+                check_interval_s=check_interval_s,
+                on_failure_callback=on_failure_callback,
+                auth_callback=auth_callback,
+            ),
+        )
+
+    return watchers
