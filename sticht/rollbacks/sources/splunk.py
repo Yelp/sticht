@@ -27,23 +27,23 @@ class SplunkMetricWatcher(MetricWatcher):
         label: str,
         query: str,
         on_failure_callback: Callable[['MetricWatcher'], None],
-        auth_callback: Callable[[], SplunkAuth],
+        splunk:  SplunkAuth,
     ) -> None:
         super().__init__(label, on_failure_callback)
         self._query = query
         # TODO: should we share a global version of this so that we're
         # not logging-in a million times?
-        self._splunk: Optional[splunklib.client.Service] = None
-        self._auth_callback = auth_callback
+        # self._splunk: Optional[splunklib.client.Service] = None
+        self._splunk = splunk
 
-    def _splunk_login(self) -> None:
-        auth = self._auth_callback()
-        self._splunk = splunklib.client.connect(
-            host=auth.host,
-            port=auth.port,
-            username=auth.username,
-            password=auth.password,
-        )
+    # def _splunk_login(self) -> None:
+    #     auth = self._auth_callback()
+    #     self._splunk = splunklib.client.connect(
+    #         host=auth.host,
+    #         port=auth.port,
+    #         username=auth.username,
+    #         password=auth.password,
+    #     )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, SplunkMetricWatcher):
@@ -98,9 +98,9 @@ class SplunkMetricWatcher(MetricWatcher):
         Starts a Splunk search (i.e., Job) and polls it until its finished
         to get the results from a user-specified query
         """
-        if not self._splunk:
-            self._splunk_login()
-            assert self._splunk is not None
+        # if not self._splunk:
+        #     self._splunk_login()
+        #     assert self._splunk is not None
 
         # TODO: do we need set set any other kwargs? e.g., earliest_time or output mode?
         job = self._splunk.search(query=self._query)
@@ -122,7 +122,7 @@ class SplunkMetricWatcher(MetricWatcher):
         config: SplunkRule,
         check_interval_s: Optional[float],
         on_failure_callback: Callable[['MetricWatcher'], None],
-        auth_callback: Callable[[], SplunkAuth],
+        splunk: SplunkAuth,
     ) -> 'SplunkMetricWatcher':
         if check_interval_s is not None:
             log.warning(
@@ -133,7 +133,7 @@ class SplunkMetricWatcher(MetricWatcher):
             config['label'],
             config['query'],
             on_failure_callback=on_failure_callback,
-            auth_callback=auth_callback,
+            splunk=splunk,
         )
 
 
@@ -141,12 +141,12 @@ def create_splunk_metricwatchers(
     splunk_conditions: List[SplunkRule],
     check_interval_s: Optional[float],
     on_failure_callback: Callable[[MetricWatcher], None],
-    auth_callback: Optional[Callable[[], SplunkAuth]],
+    splunk: SplunkAuth,
 ) -> List[SplunkMetricWatcher]:
     log.info(f'Creating {len(splunk_conditions)} Splunk watchers...')
 
-    if auth_callback is None:
-        raise ValueError('Splunk rules defined, but no auth callback provided')
+    # if auth_callback is None:
+    #     raise ValueError('Splunk rules defined, but no auth callback provided')
 
     watchers = []
     for splunk_rule in splunk_conditions:
@@ -157,7 +157,7 @@ def create_splunk_metricwatchers(
                 config=splunk_rule,
                 check_interval_s=check_interval_s,
                 on_failure_callback=on_failure_callback,
-                auth_callback=auth_callback,
+                splunk=splunk,
             ),
         )
 

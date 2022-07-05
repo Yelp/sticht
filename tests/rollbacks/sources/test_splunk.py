@@ -20,7 +20,7 @@ def test_query_calls_process_results():
         label='test_query',
         query='what does it all mean',
         on_failure_callback=lambda _: None,
-        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        splunk=TEST_SPLUNK_AUTH,
     )
     watcher._splunk = mock.Mock(spec=splunklib.client.Service)
 
@@ -49,7 +49,7 @@ def test__get_splunk_result_respects_query_timeout():
             label='test_query',
             query='what does it all mean',
             on_failure_callback=lambda _: None,
-            auth_callback=lambda: TEST_SPLUNK_AUTH,
+            splunk=TEST_SPLUNK_AUTH,
         )
         watcher._splunk = mock.Mock(spec=splunklib.client.Service)
 
@@ -94,7 +94,7 @@ def test__get_splunk_result(results, expected_results):
             label='test_query',
             query='what does it all mean',
             on_failure_callback=lambda _: None,
-            auth_callback=lambda: TEST_SPLUNK_AUTH,
+            splunk=TEST_SPLUNK_AUTH,
         )
         assert watcher._get_splunk_results(mock_job) == expected_results
 
@@ -104,7 +104,7 @@ def test_query_logins_on_first_attempt():
         label='test_query',
         query='what does it all mean',
         on_failure_callback=lambda _: None,
-        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        splunk=TEST_SPLUNK_AUTH,
     )
 
     def _login_side_effect(_):
@@ -125,20 +125,20 @@ def test_query_logins_on_first_attempt():
         mock_login.assert_called_once()
 
 
-def test_login_calls_auth_callback():
-    mock_credentials_callback = mock.Mock()
-    watcher = SplunkMetricWatcher(
-        label='test_query',
-        query='what does it all mean',
-        on_failure_callback=lambda _: None,
-        auth_callback=mock_credentials_callback,
-    )
-    with mock.patch(
-        'sticht.rollbacks.sources.splunk.splunklib.client.connect',
-        autospec=True,
-    ):
-        watcher._splunk_login()
-    mock_credentials_callback.assert_called_once()
+# def test_login_calls_auth_callback(): # TODO: remove?
+    # mock_credentials_callback = mock.Mock()
+    # watcher = SplunkMetricWatcher(
+    #     label='test_query',
+    #     query='what does it all mean',
+    #     on_failure_callback=lambda _: None,
+    #     auth_callback=mock_credentials_callback,
+    # )
+    # with mock.patch(
+    #     'sticht.rollbacks.sources.splunk.splunklib.client.connect',
+    #     autospec=True,
+    # ):
+    #     watcher._splunk_login()
+    # mock_credentials_callback.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -156,10 +156,10 @@ def test_from_config(check_interval_s):
         },
         check_interval_s=check_interval_s,
         on_failure_callback=lambda _: None,
-        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        splunk=TEST_SPLUNK_AUTH,
     ) == SplunkMetricWatcher(
         label='label',
         query='query',
         on_failure_callback=lambda _: None,
-        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        splunk=TEST_SPLUNK_AUTH,
     )

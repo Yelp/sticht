@@ -37,7 +37,7 @@ def test_watch_metrics_for_service_creates_watchers(tmp_path):
         soa_dir=soa_dir,
         on_failure_callback=lambda _, __: None,
         on_failure_trigger_callback=lambda _: None,
-        splunk_auth_callback=lambda: TEST_SPLUNK_AUTH,
+        splunk_auth=TEST_SPLUNK_AUTH,
     )
 
     assert len(watchers) == 1
@@ -45,5 +45,5 @@ def test_watch_metrics_for_service_creates_watchers(tmp_path):
         label='label',
         query='hwat',
         on_failure_callback=lambda _: None,
-        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        splunk=TEST_SPLUNK_AUTH,
     )
