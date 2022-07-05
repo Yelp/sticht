@@ -31,19 +31,7 @@ class SplunkMetricWatcher(MetricWatcher):
     ) -> None:
         super().__init__(label, on_failure_callback)
         self._query = query
-        # TODO: should we share a global version of this so that we're
-        # not logging-in a million times?
-        # self._splunk: Optional[splunklib.client.Service] = None
         self._splunk = splunk
-
-    # def _splunk_login(self) -> None:
-    #     auth = self._auth_callback()
-    #     self._splunk = splunklib.client.connect(
-    #         host=auth.host,
-    #         port=auth.port,
-    #         username=auth.username,
-    #         password=auth.password,
-    #     )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, SplunkMetricWatcher):
