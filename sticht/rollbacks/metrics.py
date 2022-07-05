@@ -65,7 +65,6 @@ def watch_metrics_for_service(
 
         splunk_conditions = rollback_conditions.get('splunk')
         if splunk_conditions:
-            print(splunk_auth)
             if splunk is None:
                 splunk = splunklib.client.connect(
                     host=splunk_auth.host,
