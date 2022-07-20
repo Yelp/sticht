@@ -1,3 +1,5 @@
+from unittest import mock
+
 import yaml
 
 from sticht.rollbacks.metrics import watch_metrics_for_service
@@ -12,7 +14,8 @@ TEST_SPLUNK_AUTH = SplunkAuth(
 )
 
 
-def test_watch_metrics_for_service_creates_watchers(tmp_path):
+@mock.patch('sticht.rollbacks.sources.splunk.SplunkMetricWatcher.query')
+def test_watch_metrics_for_service_creates_watchers(mock_splunk_metric_watcher_query, tmp_path,):
     service = 'serviceA'
     soa_dir = tmp_path
     (soa_dir / service).mkdir()
@@ -47,3 +50,4 @@ def test_watch_metrics_for_service_creates_watchers(tmp_path):
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
     )
+    assert mock_splunk_metric_watcher_query.called

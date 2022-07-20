@@ -80,4 +80,17 @@ class MetricWatcher:
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Optional[Callable[[], Any]] = None,
     ) -> MetricWatcherT:
+        """
+        Part of the public interface for a MetricWatcher.
+        Should take a rule config (from soaconfigs) + some additional metadata (e.g., auth information)
+        and return a fully-formed MetricWatcher subclass
+        """
+        raise NotImplementedError()
+
+    def watch(self) -> None:
+        """
+        Part of the public interface for a MetricWatcher.
+        Meant to be invoked as the target of a threading.Thread and run query() until Sticht/the
+        RollbackSlackDeploymentProcess exit.
+        """
         raise NotImplementedError()
