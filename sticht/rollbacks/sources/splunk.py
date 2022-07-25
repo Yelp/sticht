@@ -1,5 +1,4 @@
 import logging
-import time
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -59,27 +58,11 @@ class SplunkMetricWatcher(MetricWatcher):
 
     def _get_splunk_results(
         self,
-        job: splunklib.client.Job,
+        response_reader: splunklib.binding.ResponseReader,
         # TODO: we can probably make somewhat of a TypedDict for what a result looks like?
     ) -> Optional[List[Dict[Any, Any]]]:
-        result_total_wait_time_s = 0
-        while not job.is_done():
-            # TODO: should this timeout be hardcoded? dynamic? come from user config? something else?
-            if result_total_wait_time_s > MAX_QUERY_TIME_S:
-                log.error(f'Waited over {MAX_QUERY_TIME_S}s for query to finish - killing query.')
-                job.cancel()
-                # TODO: should this raise an exception instead?
-                return None
-            # TODO: should this sleep be hardcoded? dynamic? come from user config? something else?
-            time.sleep(secs=DEFAULT_SPLUNK_POLL_S)
-            result_total_wait_time_s += DEFAULT_SPLUNK_POLL_S
-
         results: List[Dict[Any, Any]] = []
-        for result in splunklib.results.JSONResultsReader(
-            stream=job.results(
-                output_mode='json',
-            ),
-        ):
+        for result in splunklib.results.JSONResultsReader(stream=response_reader):
             # Diagnostic messages may be returned in the results
             if isinstance(result, splunklib.results.Message):
                 log.debug(f'[splunk] {result.type}: {result.message}')
@@ -95,16 +78,18 @@ class SplunkMetricWatcher(MetricWatcher):
     # do we just cut it off?
     def query(self) -> None:
         """
-        Starts a Splunk search (i.e., Job) and polls it until its finished
+        Starts a Splunk oneshot search (i.e., Job) and polls it until its finished
         to get the results from a user-specified query
         """
         if not self._splunk:
             self._splunk_login()
             assert self._splunk is not None
 
-        # TODO: do we need set set any other kwargs? e.g., earliest_time or output mode?
-        job = self._splunk.search(query=self._query)
-        results = self._get_splunk_results(job=job)
+        # TODO: do we need set set any other kwargs? e.g., adhoc_search_level, earliest_time, rf, etc.
+        # Oneshot is a blocking search that runs immediately. It does not return a search job so there
+        # is no need to poll for status. It directly returns the results of the search.
+        rr = self._splunk.jobs.oneshot(query=self._query, output_mode='json', auto_cancel=MAX_QUERY_TIME_S)
+        results = self._get_splunk_results(response_reader=rr)
         self.process_result(results)
 
     def process_result(self, result: Optional[List[Dict[Any, Any]]]) -> None:
