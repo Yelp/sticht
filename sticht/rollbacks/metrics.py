@@ -9,7 +9,6 @@ from typing import Tuple
 
 import yaml
 
-from sticht.exceptions import MissingConfigException
 from sticht.rollbacks.soaconfigs import get_cluster_from_soaconfigs_filename
 from sticht.rollbacks.soaconfigs import get_rollback_files_from_soaconfigs
 from sticht.rollbacks.sources.splunk import create_splunk_metricwatchers
@@ -35,7 +34,7 @@ def watch_metrics_for_service(
     soa_dir: str,
     on_failure_callback: Callable[[str, Optional[bool]], None],
     on_failure_trigger_callback: Callable[[bool], None],
-    splunk_auth_callback: Optional[Callable[[], SplunkAuth]] = None,
+    splunk_auth_callback: Callable[[], SplunkAuth],
 ) -> Tuple[List[threading.Thread], List[MetricWatcher]]:
     threads: List[threading.Thread] = []
     watchers: List[MetricWatcher] = []
@@ -64,17 +63,21 @@ def watch_metrics_for_service(
 
         splunk_conditions = rollback_conditions.get('splunk')
         if splunk_conditions:
-            if splunk_auth_callback is None:
-                msg = 'Splunk auth not configured, cowardly refusing to continue'
-                log.warning(msg)
-                raise MissingConfigException(msg)
-            else:
-                watchers.extend(
-                    create_splunk_metricwatchers(
-                        splunk_conditions=splunk_conditions,
-                        check_interval_s=check_interval_s,
-                        on_failure_callback=callback_wrapper,
-                        auth_callback=splunk_auth_callback,
-                    ),
-                )
+            watchers.extend(
+                create_splunk_metricwatchers(
+                    splunk_conditions=splunk_conditions,
+                    check_interval_s=check_interval_s,
+                    on_failure_callback=callback_wrapper,
+                    auth_callback=splunk_auth_callback,
+                ),
+            )
+
+        for watcher in watchers:
+            thread = threading.Thread(
+                target=watcher.watch,
+                daemon=True,
+            )
+            threads.append(thread)
+            thread.start()
+
     return threads, watchers

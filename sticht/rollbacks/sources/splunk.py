@@ -18,6 +18,7 @@ from sticht.rollbacks.types import SplunkRule
 log = logging.getLogger(__name__)
 
 DEFAULT_SPLUNK_POLL_S = 1
+DEFAULT_SPLUNK_CHECK_INTERVAL_S = 5
 MAX_QUERY_TIME_S = 10
 
 
@@ -126,7 +127,8 @@ class SplunkMetricWatcher(MetricWatcher):
     ) -> 'SplunkMetricWatcher':
         if check_interval_s is not None:
             log.warning(
-                f'Ignoring check_interval_s of {check_interval_s} and using default of {DEFAULT_SPLUNK_POLL_S}',
+                f'Ignoring check_interval_s of {check_interval_s}'
+                + f'and using default of {DEFAULT_SPLUNK_CHECK_INTERVAL_S}',
             )
 
         return cls(
@@ -135,6 +137,14 @@ class SplunkMetricWatcher(MetricWatcher):
             on_failure_callback=on_failure_callback,
             auth_callback=auth_callback,
         )
+
+    def watch(self) -> None:
+        while True:
+            log.info(f'starting query for {self.label}')
+            self.query()
+
+            log.info(f'Waiting {DEFAULT_SPLUNK_CHECK_INTERVAL_S} before re-querying for {self.label}')
+            time.sleep(DEFAULT_SPLUNK_CHECK_INTERVAL_S)
 
 
 def create_splunk_metricwatchers(

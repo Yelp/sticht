@@ -172,7 +172,13 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         )
 
     def start_metric_watcher_threads(self, service: str, soa_dir: str) -> None:
-        _, self.metric_watchers = watch_metrics_for_service(service=service, soa_dir=soa_dir)
+        _, self.metric_watchers = watch_metrics_for_service(
+            service=service,
+            soa_dir=soa_dir,
+            on_failure_callback=self.individual_metric_callback,
+            on_failure_trigger_callback=self.all_metrics_callback,
+            splunk_auth_callback=self.get_splunk_api_token,
+        )
 
     @abc.abstractmethod
     def get_signalfx_api_token(self) -> str:
