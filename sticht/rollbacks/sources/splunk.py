@@ -74,20 +74,18 @@ class SplunkMetricWatcher(MetricWatcher):
 
     # TODO: need to figure out what to do re: min. frequency here
     # since splunk searches can take a while
-    # TODO: what if a query takes longer than the min. frequency?
-    # do we just cut it off?
     def query(self) -> None:
         """
-        Starts a Splunk oneshot search (i.e., Job) and polls it until its finished
-        to get the results from a user-specified query
+        Starts a Splunk oneshot search (i.e., Job) and blocks until
+        all results from a user-specified query are returned
         """
         if not self._splunk:
             self._splunk_login()
             assert self._splunk is not None
 
-        # TODO: do we need set set any other kwargs? e.g., adhoc_search_level, earliest_time, rf, etc.
         # Oneshot is a blocking search that runs immediately. It does not return a search job so there
         # is no need to poll for status. It directly returns the results of the search.
+        # TODO: do we need set set any other kwargs? e.g., adhoc_search_level, earliest_time, rf, etc.
         rr = self._splunk.jobs.oneshot(query=self._query, output_mode='json', auto_cancel=MAX_QUERY_TIME_S)
         results = self._get_splunk_results(response_reader=rr)
         self.process_result(results)
