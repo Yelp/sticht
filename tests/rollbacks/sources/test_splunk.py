@@ -34,29 +34,6 @@ def test_query_calls_process_results():
         mock_process_result.assert_called_once()
 
 
-def test__get_splunk_result_respects_query_timeout():
-    with mock.patch(
-        'time.sleep',
-        return_value=None,
-    ), mock.patch(
-        'sticht.rollbacks.sources.splunk.splunklib.client.Jobs.oneshot',
-        autospec=True,
-    ) as mock_job:
-        # make sure we hit the timeout...
-        # mock_job.is_done.side_effect = [False] * (MAX_QUERY_TIME_S * 2)
-        # TODO: FIX
-        watcher = SplunkMetricWatcher(
-            label='test_query',
-            query='what does it all mean',
-            on_failure_callback=lambda _: None,
-            auth_callback=lambda: TEST_SPLUNK_AUTH,
-        )
-        watcher._splunk = mock.Mock(spec=splunklib.client.Service)
-
-        assert watcher._get_splunk_results(mock_job) is None
-        # mock_job.cancel.assert_called_once()
-
-
 @pytest.mark.parametrize(
     'results, expected_results', (
         (
