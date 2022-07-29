@@ -1,3 +1,4 @@
+import datetime
 import logging
 import time
 from typing import Any
@@ -40,7 +41,10 @@ class SplunkMetricWatcher(MetricWatcher):
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
         self._auth_callback = auth_callback
-        self.previously_failing: Optional[bool] = None
+        self.start_timestamp = time.time()
+        self.bad_before_mark: Optional[bool] = None
+        self.bad_after_mark: Optional[bool] = None
+        self.failing = False
 
     def _splunk_login(self) -> None:
         auth = self._auth_callback()
@@ -108,25 +112,37 @@ class SplunkMetricWatcher(MetricWatcher):
             self._splunk_login()
             assert self._splunk is not None
 
+        current_timestamp = time.time()
+        earliest_time = (datetime.datetime.fromtimestamp(current_timestamp) -
+                         datetime.timedelta(seconds=30)).timestamp()
+
         # TODO: do we need set set any other kwargs? e.g., earliest_time or output mode?
         job = self._splunk.search(query=self._query)
         results = self._get_splunk_results(job=job)
-        self.process_result(results)
+        self.process_result(results, earliest_time=earliest_time)
 
-    def process_result(self, result: Optional[List[Dict[Any, Any]]]) -> None:
+    def process_result(self, result: Optional[List[Dict[Any, Any]]], earliest_time) -> None:
         """
         We allow users to compare either a single value from a query or the
         number of results from a query against configured thresholds to determine
         whether or not to rollback or not
         """
-        if self.previously_failing is None and result is not None:
-            # TODO: Change the way we're parsing results
-            if len(result) < self._lower_bound or len(result) > self._upper_bound:
-                self.previously_failing = True
-            else:
-                self.previously_failing = False
+        if earliest_time < self.start_timestamp and result is not None:
+            self.bad_before_mark = self.is_window_bad(result)
+        else:
+            self.bad_after_mark = self.is_window_bad(result)
 
-        pass
+        old_failing = self.failing
+        self.failing = self.bad_after_mark and not self.bad_before_mark
+
+        if self.failing == (not old_failing):
+            self.on_failure_callback(self)
+
+    def is_window_bad(self, result) -> bool:
+        # TODO: Change the way we're parsing results
+        if len(result) < self._lower_bound or len(result) > self._upper_bound:
+            return True
+        return False
 
     @classmethod
     def from_config(  # type: ignore[override]
@@ -153,6 +169,7 @@ class SplunkMetricWatcher(MetricWatcher):
         )
 
     def watch(self) -> None:
+        # TODO: Watch until bounce is complete OR timeout is passed
         while True:
             log.info(f'starting query for {self.label}')
             self.query()

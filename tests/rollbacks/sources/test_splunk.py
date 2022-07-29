@@ -52,7 +52,7 @@ def test_process_result_previously_failing():
         mock_results.return_value = []
         watcher.query()
 
-    assert watcher.previously_failing
+    assert watcher.bad_before_mark
 
 
 def test__get_splunk_result_respects_query_timeout():
