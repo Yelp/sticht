@@ -29,13 +29,18 @@ class SplunkMetricWatcher(MetricWatcher):
         query: str,
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Callable[[], SplunkAuth],
+        upper_bound=None,
+        lower_bound=None,
     ) -> None:
         super().__init__(label, on_failure_callback)
         self._query = query
+        self._upper_bound = upper_bound
+        self._lower_bound = lower_bound
         # TODO: should we share a global version of this so that we're
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
         self._auth_callback = auth_callback
+        self.previously_failing: Optional[bool] = None
 
     def _splunk_login(self) -> None:
         auth = self._auth_callback()
@@ -114,6 +119,13 @@ class SplunkMetricWatcher(MetricWatcher):
         number of results from a query against configured thresholds to determine
         whether or not to rollback or not
         """
+        if self.previously_failing is None and result is not None:
+            # TODO: Change the way we're parsing results
+            if len(result) < self._lower_bound or len(result) > self._upper_bound:
+                self.previously_failing = True
+            else:
+                self.previously_failing = False
+
         pass
 
     @classmethod
@@ -136,6 +148,8 @@ class SplunkMetricWatcher(MetricWatcher):
             config['query'],
             on_failure_callback=on_failure_callback,
             auth_callback=auth_callback,
+            lower_bound=config['lower_bound'] if 'lower_bound' in config else None,
+            upper_bound=config['upper_bound'] if 'upper_bound' in config else None,
         )
 
     def watch(self) -> None:

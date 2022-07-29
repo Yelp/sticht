@@ -15,7 +15,7 @@ TEST_SPLUNK_AUTH = SplunkAuth(
 )
 
 
-def test_query_calls_process_results():
+def test_query_calls_process_result():
     watcher = SplunkMetricWatcher(
         label='test_query',
         query='what does it all mean',
@@ -33,6 +33,26 @@ def test_query_calls_process_results():
     ) as mock_process_result:
         watcher.query()
         mock_process_result.assert_called_once()
+
+
+def test_process_result_previously_failing():
+    watcher = SplunkMetricWatcher(
+        label='test_query',
+        query='test_query',
+        on_failure_callback=lambda _: None,
+        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        lower_bound=1,
+        upper_bound=3,
+    )
+    watcher._splunk = mock.Mock(spec=splunklib.client.Service)
+    with mock.patch(
+        'sticht.rollbacks.sources.splunk.SplunkMetricWatcher._get_splunk_results',
+        autospec=True,
+    )as mock_results:
+        mock_results.return_value = []
+        watcher.query()
+
+    assert watcher.previously_failing
 
 
 def test__get_splunk_result_respects_query_timeout():

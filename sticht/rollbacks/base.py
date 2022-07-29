@@ -154,12 +154,13 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                     )
                     for metric_watcher in unknown:
                         metric_text_components.append(f'{metric_watcher.label}\n')
-                
+
                 if len(previously_failing) > 0:
                     metric_text_components.extend(
                         [
                             Emoji(':grimacing:'),
-                            f'{len(previously_failing)} rollback conditions were failing before deploy, and will be ignored:\n',
+                            f'{len(previously_failing)} rollback conditions were failing before deploy,'
+                            + 'and will be ignored:\n',
                         ],
                     )
                     for metric_watcher in previously_failing:
@@ -177,8 +178,6 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                         metric_text_components.append(
                             f'The remaining {remaining} rollback conditions are currently passing.',
                         )
-
-                
 
             if summary:
                 # For summary, only display emojis.
