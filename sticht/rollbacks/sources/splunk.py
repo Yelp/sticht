@@ -86,8 +86,8 @@ class SplunkMetricWatcher(MetricWatcher):
         # Oneshot is a blocking search that runs immediately. It does not return a search job so there
         # is no need to poll for status. It directly returns the results of the search.
         # TODO: do we need set set any other kwargs? e.g., adhoc_search_level, earliest_time, rf, etc.
-        rr = self._splunk.jobs.oneshot(query=self._query, output_mode='json', auto_cancel=MAX_QUERY_TIME_S)
-        results = self._get_splunk_results(response_reader=rr)
+        res_reader = self._splunk.jobs.oneshot(query=self._query, output_mode='json', auto_cancel=MAX_QUERY_TIME_S)
+        results = self._get_splunk_results(response_reader=res_reader)
         self.process_result(results)
 
     def process_result(self, result: Optional[List[Dict[Any, Any]]]) -> None:
