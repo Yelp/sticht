@@ -1,3 +1,5 @@
+from unittest import mock
+
 import yaml
 
 from sticht.rollbacks.metrics import watch_metrics_for_service
@@ -32,13 +34,18 @@ def test_watch_metrics_for_service_creates_watchers(tmp_path):
         ),
     )
 
-    _, watchers = watch_metrics_for_service(
-        service=service,
-        soa_dir=soa_dir,
-        on_failure_callback=lambda _, __: None,
-        on_failure_trigger_callback=lambda _: None,
-        splunk_auth=TEST_SPLUNK_AUTH,
-    )
+    with mock.patch(
+        'sticht.rollbacks.sources.splunk.splunklib.client',
+        autospec=True,
+    ) as mock_client:
+        mock_client.connect.return_value = mock.MagicMock()
+        _, watchers = watch_metrics_for_service(
+            service=service,
+            soa_dir=soa_dir,
+            on_failure_callback=lambda _, __: None,
+            on_failure_trigger_callback=lambda _: None,
+            splunk_auth=TEST_SPLUNK_AUTH,
+        )
 
     assert len(watchers) == 1
     assert watchers[0] == SplunkMetricWatcher(
