@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -26,11 +27,13 @@ class SplunkMetricWatcher(MetricWatcher):
         self,
         label: str,
         query: str,
+        query_type: str,
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Callable[[], SplunkAuth],
     ) -> None:
         super().__init__(label, on_failure_callback)
         self._query = query
+        self._query_type = query_type
         # TODO: should we share a global version of this so that we're
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
@@ -99,6 +102,19 @@ class SplunkMetricWatcher(MetricWatcher):
         """
         pass
 
+    def is_window_bad(self, result) -> bool:
+        if self._query_type == 'results':
+            if self._lower_bound and len(result) > self._lower_bound:
+                return True
+            elif self._upper_bound and len(result) < self._upper_bound:
+                return True
+        else:
+            result_num = next(iter(result[0].values()))
+            if self._lower_bound and result_num > self._lower_bound:
+                return True
+            elif self._upper_bound and result_num > self._upper_bound:
+                return True
+
     @classmethod
     def from_config(  # type: ignore[override]
         # we don't care about violating LSP - we just want to follow a given interface
@@ -117,6 +133,7 @@ class SplunkMetricWatcher(MetricWatcher):
         return cls(
             config['label'],
             config['query'],
+            config['query_type'],
             on_failure_callback=on_failure_callback,
             auth_callback=auth_callback,
         )
