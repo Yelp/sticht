@@ -18,6 +18,7 @@ def test_query_calls_process_result():
     watcher = SplunkMetricWatcher(
         label='test_query',
         query='what does it all mean',
+        query_type='results',
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
     )
@@ -38,6 +39,7 @@ def test_process_result_bad_before_mark():
     watcher = SplunkMetricWatcher(
         label='test_query',
         query='test_query',
+        query_type='results',
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
         lower_bound=1,
@@ -49,9 +51,9 @@ def test_process_result_bad_before_mark():
         autospec=True,
     )as mock_results:
         mock_results.return_value = []
-        watcher.query()
+        watcher.query(lookback_seconds=30)
 
-    assert watcher.bad_before_mark
+    assert watcher.bad_before_mark is True
 
 
 @pytest.mark.parametrize(
@@ -90,6 +92,7 @@ def test__get_splunk_result(results, expected_results):
         watcher = SplunkMetricWatcher(
             label='test_query',
             query='what does it all mean',
+            query_type='results',
             on_failure_callback=lambda _: None,
             auth_callback=lambda: TEST_SPLUNK_AUTH,
         )
@@ -100,6 +103,7 @@ def test_query_logins_on_first_attempt():
     watcher = SplunkMetricWatcher(
         label='test_query',
         query='what does it all mean',
+        query_type='results',
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
     )
@@ -127,6 +131,7 @@ def test_login_calls_auth_callback():
     watcher = SplunkMetricWatcher(
         label='test_query',
         query='what does it all mean',
+        query_type='results',
         on_failure_callback=lambda _: None,
         auth_callback=mock_credentials_callback,
     )
@@ -150,6 +155,7 @@ def test_from_config(check_interval_s):
         config={
             'label': 'label',
             'query': 'query',
+            'query_type': 'type',
         },
         check_interval_s=check_interval_s,
         on_failure_callback=lambda _: None,
@@ -157,6 +163,7 @@ def test_from_config(check_interval_s):
     ) == SplunkMetricWatcher(
         label='label',
         query='query',
+        query_type='type',
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
     )

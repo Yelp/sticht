@@ -1,4 +1,3 @@
-import datetime
 import logging
 import time
 from typing import Any
@@ -28,6 +27,7 @@ class SplunkMetricWatcher(MetricWatcher):
         self,
         label: str,
         query: str,
+        query_type: str,
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Callable[[], SplunkAuth],
         upper_bound=None,
@@ -37,11 +37,12 @@ class SplunkMetricWatcher(MetricWatcher):
         self._query = query
         self._upper_bound = upper_bound
         self._lower_bound = lower_bound
+        self._query_type = query_type
         # TODO: should we share a global version of this so that we're
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
         self._auth_callback = auth_callback
-        self.start_timestamp = time.time()
+        self.start_timestamp_milliseconds = time.time()
         self.bad_before_mark: Optional[bool] = None
         self.bad_after_mark: Optional[bool] = None
         self.failing = False
@@ -85,7 +86,7 @@ class SplunkMetricWatcher(MetricWatcher):
 
     # TODO: need to figure out what to do re: min. frequency here
     # since splunk searches can take a while
-    def query(self) -> None:
+    def query(self, lookback_seconds=0) -> None:
         """
         Starts a Splunk oneshot search (i.e., Job) and blocks until
         all results from a user-specified query are returned
@@ -94,28 +95,30 @@ class SplunkMetricWatcher(MetricWatcher):
             self._splunk_login()
             assert self._splunk is not None
 
-        current_timestamp = time.time()
-        earliest_time = (datetime.datetime.fromtimestamp(current_timestamp) -
-                         datetime.timedelta(seconds=30)).timestamp()
+        if lookback_seconds > 0:
+            earliest_timestamp_milliseconds = time.time() - 30
+        else:
+            earliest_timestamp_milliseconds = None
 
         # Oneshot is a blocking search that runs immediately. It does not return a search job so there
         # is no need to poll for status. It directly returns the results of the search.
         # TODO: do we need set set any other kwargs? e.g., adhoc_search_level, earliest_time, rf, etc.
         res_reader = self._splunk.jobs.oneshot(
             query=self._query, output_mode='json',
-            auto_cancel=MAX_QUERY_TIME_S, earliest_time=earliest_time,
+            auto_cancel=MAX_QUERY_TIME_S, earliest_time=earliest_timestamp_milliseconds,
         )
         results = self._get_splunk_results(response_reader=res_reader)
-        self.process_result(results, earliest_time=earliest_time)
+        self.process_result(results, earliest_timestamp_milliseconds=earliest_timestamp_milliseconds)
 
-    def process_result(self, result: Optional[List[Dict[Any, Any]]], earliest_time) -> None:
+    def process_result(self, result: Optional[List[Dict[Any, Any]]], earliest_timestamp_milliseconds) -> None:
         """
         We allow users to compare either a single value from a query or the
         number of results from a query against configured thresholds to determine
         whether or not to rollback or not
         """
-        if earliest_time < self.start_timestamp and result is not None:
-            self.bad_before_mark = self.is_window_bad(result)
+        if earliest_timestamp_milliseconds is not None:
+            if earliest_timestamp_milliseconds < self.start_timestamp_milliseconds and result is not None:
+                self.bad_before_mark = self.is_window_bad(result)
         else:
             self.bad_after_mark = self.is_window_bad(result)
 
@@ -126,9 +129,17 @@ class SplunkMetricWatcher(MetricWatcher):
             self.on_failure_callback(self)
 
     def is_window_bad(self, result) -> bool:
-        # TODO: Change the way we're parsing results
-        if len(result) < self._lower_bound or len(result) > self._upper_bound:
-            return True
+        if self._query_type == 'results':
+            if self._lower_bound and len(result) > self._lower_bound:
+                return True
+            elif self._upper_bound and len(result) < self._upper_bound:
+                return True
+        else:
+            result_num = next(iter(result[0].values()))
+            if self._lower_bound and result_num > self._lower_bound:
+                return True
+            elif self._upper_bound and result_num > self._upper_bound:
+                return True
         return False
 
     @classmethod
@@ -149,6 +160,7 @@ class SplunkMetricWatcher(MetricWatcher):
         return cls(
             config['label'],
             config['query'],
+            config['query_type'],
             on_failure_callback=on_failure_callback,
             auth_callback=auth_callback,
             lower_bound=config['lower_bound'] if 'lower_bound' in config else None,

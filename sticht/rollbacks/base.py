@@ -159,8 +159,8 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                     metric_text_components.extend(
                         [
                             Emoji(':grimacing:'),
-                            f'{len(bad_before_mark)} rollback conditions were failing before deploy,'
-                            + 'and will be ignored:\n',
+                            f'{len(bad_before_mark)} rollback conditions were failing before deploy, ',
+                            'and will be ignored:\n',
                         ],
                     )
                     for metric_watcher in bad_before_mark:

@@ -27,6 +27,7 @@ def test_watch_metrics_for_service_creates_watchers(mock_splunk_metric_watcher_q
                         {
                             'label': 'label',
                             'query': 'hwat',
+                            'query_type': 'type',
                             'lower_bound': 1,
                         },
                     ],
@@ -47,6 +48,7 @@ def test_watch_metrics_for_service_creates_watchers(mock_splunk_metric_watcher_q
     assert watchers[0] == SplunkMetricWatcher(
         label='label',
         query='hwat',
+        query_type='type',
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
     )
