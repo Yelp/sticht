@@ -18,7 +18,7 @@ from sticht.rollbacks.types import SplunkRule
 log = logging.getLogger(__name__)
 
 DEFAULT_SPLUNK_POLL_S = 1
-DEFAULT_SPLUNK_CHECK_INTERVAL_S = 5
+DEFAULT_SPLUNK_CHECK_INTERVAL_S = 30
 MAX_QUERY_TIME_S = 10
 
 
@@ -96,7 +96,7 @@ class SplunkMetricWatcher(MetricWatcher):
             assert self._splunk is not None
 
         if lookback_seconds > 0:
-            earliest_timestamp_milliseconds = time.time() - 30
+            earliest_timestamp_milliseconds = time.time() - lookback_seconds
         else:
             earliest_timestamp_milliseconds = None
 
@@ -109,6 +109,7 @@ class SplunkMetricWatcher(MetricWatcher):
         )
         results = self._get_splunk_results(response_reader=res_reader)
         self.process_result(results, earliest_timestamp_milliseconds=earliest_timestamp_milliseconds)
+        
 
     def process_result(self, result: Optional[List[Dict[Any, Any]]], earliest_timestamp_milliseconds) -> None:
         """
@@ -116,27 +117,26 @@ class SplunkMetricWatcher(MetricWatcher):
         number of results from a query against configured thresholds to determine
         whether or not to rollback or not
         """
-        if earliest_timestamp_milliseconds is not None:
-            if earliest_timestamp_milliseconds < self.start_timestamp_milliseconds and result is not None:
-                self.bad_before_mark = self.is_window_bad(result)
+        if earliest_timestamp_milliseconds is not None and earliest_timestamp_milliseconds < self.start_timestamp_milliseconds and result is not None:
+            self.bad_before_mark = self.is_window_bad(result)
         else:
             self.bad_after_mark = self.is_window_bad(result)
-
+        
         old_failing = self.failing
         self.failing = self.bad_after_mark and not self.bad_before_mark
-
         if self.failing == (not old_failing):
             self.on_failure_callback(self)
+        
 
     def is_window_bad(self, result) -> bool:
         if self._query_type == 'results':
-            if self._lower_bound and len(result) > self._lower_bound:
+            if self._lower_bound and len(result) < self._lower_bound:
                 return True
-            elif self._upper_bound and len(result) < self._upper_bound:
+            elif self._upper_bound and len(result) > self._upper_bound:
                 return True
         else:
             result_num = next(iter(result[0].values()))
-            if self._lower_bound and result_num > self._lower_bound:
+            if self._lower_bound and result_num < self._lower_bound:
                 return True
             elif self._upper_bound and result_num > self._upper_bound:
                 return True
@@ -151,11 +151,11 @@ class SplunkMetricWatcher(MetricWatcher):
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Callable[[], SplunkAuth],
     ) -> 'SplunkMetricWatcher':
-        if check_interval_s is not None:
-            log.warning(
-                f'Ignoring check_interval_s of {check_interval_s}'
-                + f'and using default of {DEFAULT_SPLUNK_CHECK_INTERVAL_S}',
-            )
+        # if check_interval_s is not None:
+        #     log.warning(
+        #         f'Ignoring check_interval_s of {check_interval_s}'
+        #         + f'and using default of {DEFAULT_SPLUNK_CHECK_INTERVAL_S}',
+        #     )
 
         return cls(
             config['label'],
@@ -170,11 +170,13 @@ class SplunkMetricWatcher(MetricWatcher):
     def watch(self) -> None:
         # TODO: Watch until bounce is complete OR timeout is passed
         while True:
+            print('Running query')
             log.info(f'starting query for {self.label}')
-            self.query()
+            self.query(lookback_seconds=30)
 
             log.info(f'Waiting {DEFAULT_SPLUNK_CHECK_INTERVAL_S} before re-querying for {self.label}')
             time.sleep(DEFAULT_SPLUNK_CHECK_INTERVAL_S)
+            
 
 
 def create_splunk_metricwatchers(
