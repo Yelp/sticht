@@ -42,7 +42,7 @@ class SplunkMetricWatcher(MetricWatcher):
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
         self._auth_callback = auth_callback
-        self.start_timestamp_milliseconds = time.time()
+        self.start_timestamp_seconds = time.time()
         self.bad_before_mark: Optional[bool] = None
         self.bad_after_mark: Optional[bool] = None
         self.failing = False
@@ -96,37 +96,35 @@ class SplunkMetricWatcher(MetricWatcher):
             assert self._splunk is not None
 
         if lookback_seconds > 0:
-            earliest_timestamp_milliseconds = time.time() - lookback_seconds
+            earliest_timestamp_seconds = time.time() - lookback_seconds
         else:
-            earliest_timestamp_milliseconds = None
+            earliest_timestamp_seconds = 'now'
 
         # Oneshot is a blocking search that runs immediately. It does not return a search job so there
         # is no need to poll for status. It directly returns the results of the search.
-        # TODO: do we need set set any other kwargs? e.g., adhoc_search_level, earliest_time, rf, etc.
         res_reader = self._splunk.jobs.oneshot(
             query=self._query, output_mode='json',
-            auto_cancel=MAX_QUERY_TIME_S, earliest_time=earliest_timestamp_milliseconds,
+            auto_cancel=MAX_QUERY_TIME_S, earliest_time=earliest_timestamp_seconds,
         )
         results = self._get_splunk_results(response_reader=res_reader)
-        self.process_result(results, earliest_timestamp_milliseconds=earliest_timestamp_milliseconds)
-        
+        self.process_result(results, earliest_timestamp_seconds=earliest_timestamp_seconds)
 
-    def process_result(self, result: Optional[List[Dict[Any, Any]]], earliest_timestamp_milliseconds) -> None:
+    def process_result(self, result: Optional[List[Dict[Any, Any]]], earliest_timestamp_seconds) -> None:
         """
         We allow users to compare either a single value from a query or the
         number of results from a query against configured thresholds to determine
         whether or not to rollback or not
         """
-        if earliest_timestamp_milliseconds is not None and earliest_timestamp_milliseconds < self.start_timestamp_milliseconds and result is not None:
-            self.bad_before_mark = self.is_window_bad(result)
+        if earliest_timestamp_seconds != 'now':
+            if earliest_timestamp_seconds < self.start_timestamp_seconds and result is not None:
+                self.bad_before_mark = self.is_window_bad(result)
         else:
             self.bad_after_mark = self.is_window_bad(result)
-        
+
         old_failing = self.failing
         self.failing = self.bad_after_mark and not self.bad_before_mark
         if self.failing == (not old_failing):
             self.on_failure_callback(self)
-        
 
     def is_window_bad(self, result) -> bool:
         if self._query_type == 'results':
@@ -170,13 +168,12 @@ class SplunkMetricWatcher(MetricWatcher):
     def watch(self) -> None:
         # TODO: Watch until bounce is complete OR timeout is passed
         while True:
-            print('Running query')
             log.info(f'starting query for {self.label}')
+            # SLOs also look at events from the last 30 seconds
             self.query(lookback_seconds=30)
 
             log.info(f'Waiting {DEFAULT_SPLUNK_CHECK_INTERVAL_S} before re-querying for {self.label}')
             time.sleep(DEFAULT_SPLUNK_CHECK_INTERVAL_S)
-            
 
 
 def create_splunk_metricwatchers(

@@ -71,7 +71,7 @@ def watch_metrics_for_service(
                     auth_callback=splunk_auth_callback,
                 ),
             )
-        
+
         for watcher in watchers:
             thread = threading.Thread(
                 target=watcher.watch,

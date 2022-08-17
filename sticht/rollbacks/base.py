@@ -32,7 +32,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             blocks.append(
                 {'type': 'section', 'text': {'type': 'mrkdwn', 'text': slo_text}},
             )
-        
+
         metric_text = self.get_metric_text(summary=False)
         if metric_text:
             blocks.append(
