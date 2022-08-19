@@ -16,6 +16,7 @@
 # on python 3.6.0 (xenial) (https://github.com/nedbat/coveragepy/issues/703)
 coverage<5.0
 mypy
+pip-custom-platform
 pre-commit>=1.0.0
 pytest
 # this shouldn't be necessary, but tox can't seem to find the installed slackclient in
