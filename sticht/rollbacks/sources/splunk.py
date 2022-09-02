@@ -117,7 +117,7 @@ class SplunkMetricWatcher(MetricWatcher):
         whether or not to rollback or not
         """
         if earliest_timestamp_seconds != 'now':
-            if earliest_timestamp_seconds < self.start_timestamp_seconds and len(result) > 0:
+            if earliest_timestamp_seconds < self.start_timestamp_seconds:
                 self.bad_before_mark = self.is_window_bad(result)
         else:
             self.bad_after_mark = self.is_window_bad(result)
