@@ -32,6 +32,12 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             blocks.append(
                 {'type': 'section', 'text': {'type': 'mrkdwn', 'text': slo_text}},
             )
+
+        metric_text = self.get_metric_text(summary=False)
+        if metric_text:
+            blocks.append(
+                {'type': 'section', 'text': {'type': 'mrkdwn', 'text': metric_text}},
+            )
         return blocks
 
     def get_extra_summary_parts_for_deployment(self) -> List[str]:
@@ -140,10 +146,10 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 unknown = [
                     w
                     for w in self.metric_watchers
-                    if w.previously_failing is None
+                    if w.bad_before_mark is None
                 ]
 
-                previously_failing = [w for w in self.metric_watchers if w.previously_failing]
+                bad_before_mark = [w for w in self.metric_watchers if w.bad_before_mark]
                 metric_text_components = []
                 if unknown:
                     metric_text_components.extend(
@@ -155,18 +161,18 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                     for metric_watcher in unknown:
                         metric_text_components.append(f'{metric_watcher.label}\n')
 
-                if len(previously_failing) > 0:
+                if len(bad_before_mark) > 0:
                     metric_text_components.extend(
                         [
                             Emoji(':grimacing:'),
-                            f'{len(previously_failing)} rollback conditions were failing before deploy, ',
+                            f'{len(bad_before_mark)} rollback conditions were failing before deploy, ',
                             'and will be ignored:\n',
                         ],
                     )
-                    for metric_watcher in previously_failing:
+                    for metric_watcher in bad_before_mark:
                         metric_text_components.append(f'{metric_watcher.label}\n')
 
-                remaining = len(self.metric_watchers) - len(unknown) - len(previously_failing)
+                remaining = len(self.metric_watchers) - len(unknown) - len(bad_before_mark)
 
                 if remaining == len(self.metric_watchers):
                     metric_text_components = [
