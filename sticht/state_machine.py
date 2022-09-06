@@ -123,6 +123,8 @@ class DeploymentProcess(abc.ABC):
             self.event_loop.call_soon_threadsafe(self.finished_event.set)
 
     def start_timer(self, timeout, trigger, message_verb, extra_text=''):
+        # TODO: COMPINFRA-1140 - at the very least, pass trigger in to cancel_time(),
+        # but probably some more stuff to do in cancel/restart_timer
         self.cancel_timer()
         timer_start = time.time()
         timer_end = timer_start + timeout

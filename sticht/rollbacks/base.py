@@ -278,16 +278,13 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             self.trigger('metrics_stopped_failing')
         self.update_slack()
 
-    # TODO: figure out what to do wrt to these triggers now that we have SLOs and metric query
-    # rollacks
-
-    def start_auto_rollback_countdown(self, extra_text) -> None:
+    def start_auto_rollback_countdown(self, trigger: str, extra_text: str) -> None:
         self.start_timer(
-            self.get_auto_rollback_delay(),
-            'rollback_slo_failure',
-            'automatically roll back',
+            timeout=self.get_auto_rollback_delay(),
+            trigger=trigger,
+            message_verb='automatically roll back',
             extra_text=extra_text,
         )
 
-    def cancel_auto_rollback_countdown(self) -> None:
-        self.cancel_timer('rollback_slo_failure')
+    def cancel_auto_rollback_countdown(self, trigger: str) -> None:
+        self.cancel_timer(trigger=trigger)
