@@ -123,7 +123,7 @@ class DeploymentProcess(abc.ABC):
             self.event_loop.call_soon_threadsafe(self.finished_event.set)
 
     def start_timer(self, timeout, trigger, message_verb, extra_text=''):
-        self.cancel_timer()
+        self.cancel_timer(trigger=trigger)
         timer_start = time.time()
         timer_end = timer_start + timeout
         formatted_time = datetime.datetime.fromtimestamp(timer_end).strftime('%X')
