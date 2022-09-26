@@ -135,13 +135,8 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                     Emoji(':alert:'),
                     f'{len(failing)} of {len(self.metric_watchers)} rollback conditions are failing:\n',
                 ]
-                for _ in failing:
-                    # TODO: figure out how to label these for presentation in slack
-                    pass
-
-                # TODO: add text about going over the allowed failing conditions and automatically rolling back
-                # TODO: add text about ignoring rules that were failing pre-deploy
-                # TODO: add text about # of conditions with no data
+                for metric_watcher in failing:
+                    metric_text_components.append(f'{metric_watcher.label}\n')
             else:
                 unknown = [
                     w
