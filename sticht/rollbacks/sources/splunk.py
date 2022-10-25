@@ -17,8 +17,7 @@ from sticht.rollbacks.types import SplunkRule
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SPLUNK_POLL_S = 1
-DEFAULT_SPLUNK_CHECK_INTERVAL_S = 30
+DEFAULT_CHECK_INTERVAL_S = 30
 MAX_QUERY_TIME_S = 10
 
 
@@ -30,6 +29,7 @@ class SplunkMetricWatcher(MetricWatcher):
         query_type: str,
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Callable[[], SplunkAuth],
+        check_interval_s=DEFAULT_CHECK_INTERVAL_S,
         upper_bound=None,
         lower_bound=None,
     ) -> None:
@@ -42,10 +42,11 @@ class SplunkMetricWatcher(MetricWatcher):
         # not logging-in a million times?
         self._splunk: Optional[splunklib.client.Service] = None
         self._auth_callback = auth_callback
+        self._check_interval_s = check_interval_s
         self.start_timestamp_seconds = time.time()
-        self.bad_before_mark: Optional[bool] = None
         self.bad_after_mark: Optional[bool] = None
-        self.failing = False
+        self.bad_before_mark: Optional[bool] = None
+        self.failing: Optional[bool] = None
 
     def _splunk_login(self) -> None:
         auth = self._auth_callback()
@@ -86,7 +87,7 @@ class SplunkMetricWatcher(MetricWatcher):
 
     # TODO: need to figure out what to do re: min. frequency here
     # since splunk searches can take a while
-    def query(self, lookback_seconds=0) -> None:
+    def query(self, lookback_seconds=DEFAULT_CHECK_INTERVAL_S) -> None:
         """
         Starts a Splunk oneshot search (i.e., Job) and blocks until
         all results from a user-specified query are returned
@@ -95,10 +96,7 @@ class SplunkMetricWatcher(MetricWatcher):
             self._splunk_login()
             assert self._splunk is not None
 
-        if lookback_seconds > 0:
-            earliest_timestamp_seconds = time.time() - lookback_seconds
-        else:
-            earliest_timestamp_seconds = 'now'
+        earliest_timestamp_seconds = time.time() - lookback_seconds
 
         # Oneshot is a blocking search that runs immediately. It does not return a search job so there
         # is no need to poll for status. It directly returns the results of the search.
@@ -116,29 +114,34 @@ class SplunkMetricWatcher(MetricWatcher):
         number of results from a query against configured thresholds to determine
         whether or not to rollback or not
         """
-        if earliest_timestamp_seconds != 'now':
-            if earliest_timestamp_seconds < self.start_timestamp_seconds:
-                self.bad_before_mark = self.is_window_bad(result)
-        else:
+        if earliest_timestamp_seconds > self.start_timestamp_seconds:
             self.bad_after_mark = self.is_window_bad(result)
+        else:
+            self.bad_before_mark = self.is_window_bad(result)
 
         old_failing = self.failing
         self.failing = self.bad_after_mark and not self.bad_before_mark
+
         if self.failing == (not old_failing):
             self.on_failure_callback(self)
 
     def is_window_bad(self, result) -> bool:
+        # Results return an array | Number returns a number
         if self._query_type == 'results':
-            if self._lower_bound and len(result) < self._lower_bound:
+            result_num = len(result)
+        elif self._query_type == 'number':
+            result_num = next(iter(result[0].values())) if len(result) else len(result)
+
+        if self._lower_bound and self._upper_bound:
+            if result_num > self._lower_bound and result_num < self._upper_bound:
                 return True
-            elif self._upper_bound and len(result) > self._upper_bound:
+        elif self._lower_bound:
+            if result_num > self._lower_bound:
                 return True
-        else:
-            result_num = next(iter(result[0].values()))
-            if self._lower_bound and result_num < self._lower_bound:
+        elif self._upper_bound:
+            if result_num < self._upper_bound:
                 return True
-            elif self._upper_bound and result_num > self._upper_bound:
-                return True
+
         return False
 
     @classmethod
@@ -146,22 +149,16 @@ class SplunkMetricWatcher(MetricWatcher):
         # we don't care about violating LSP - we just want to follow a given interface
         cls: Type['SplunkMetricWatcher'],
         config: SplunkRule,
-        check_interval_s: Optional[float],
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Callable[[], SplunkAuth],
     ) -> 'SplunkMetricWatcher':
-        if check_interval_s is not None:
-            log.warning(
-                f'Ignoring check_interval_s of {check_interval_s}'
-                + f'and using default of {DEFAULT_SPLUNK_CHECK_INTERVAL_S}',
-            )
-
         return cls(
             config['label'],
             config['query'],
             config['query_type'],
             on_failure_callback=on_failure_callback,
             auth_callback=auth_callback,
+            check_interval_s=config['check_interval_s'] if 'check_interval_s' in config else DEFAULT_CHECK_INTERVAL_S,
             lower_bound=config['lower_bound'] if 'lower_bound' in config else None,
             upper_bound=config['upper_bound'] if 'upper_bound' in config else None,
         )
@@ -170,15 +167,14 @@ class SplunkMetricWatcher(MetricWatcher):
         # TODO: Watch until bounce is complete OR timeout is passed
         while True:
             log.info(f'starting query for {self.label}')
-            self.query(lookback_seconds=30)
+            self.query(lookback_seconds=self._check_interval_s)
 
-            log.info(f'Waiting {DEFAULT_SPLUNK_CHECK_INTERVAL_S} before re-querying for {self.label}')
-            time.sleep(DEFAULT_SPLUNK_CHECK_INTERVAL_S)
+            log.info(f'Waiting {self._check_interval_s} before re-querying for {self.label}')
+            time.sleep(self._check_interval_s)
 
 
 def create_splunk_metricwatchers(
     splunk_conditions: List[SplunkRule],
-    check_interval_s: Optional[float],
     on_failure_callback: Callable[[MetricWatcher], None],
     auth_callback: Optional[Callable[[], SplunkAuth]],
 ) -> List[SplunkMetricWatcher]:
@@ -194,7 +190,6 @@ def create_splunk_metricwatchers(
         watchers.append(
             SplunkMetricWatcher.from_config(
                 config=splunk_rule,
-                check_interval_s=check_interval_s,
                 on_failure_callback=on_failure_callback,
                 auth_callback=auth_callback,
             ),

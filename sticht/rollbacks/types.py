@@ -76,7 +76,6 @@ class MetricWatcher:
     def from_config(
         cls: Type[MetricWatcherT],
         config: BaseRule,
-        check_interval_s: Optional[float],
         on_failure_callback: Callable[['MetricWatcher'], None],
         auth_callback: Optional[Callable[[], Any]] = None,
     ) -> MetricWatcherT:

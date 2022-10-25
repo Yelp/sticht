@@ -56,7 +56,6 @@ def watch_metrics_for_service(
         log.info(f'Processing configs for {service} in {cluster}...')
 
         rollback_conditions = config.get('conditions')
-        check_interval_s = config.get('check_interval_s')
         if not rollback_conditions:
             log.warning(f'{cluster} has a rollback file - but no conditions!')
             continue
@@ -66,7 +65,6 @@ def watch_metrics_for_service(
             watchers.extend(
                 create_splunk_metricwatchers(
                     splunk_conditions=splunk_conditions,
-                    check_interval_s=check_interval_s,
                     on_failure_callback=callback_wrapper,
                     auth_callback=splunk_auth_callback,
                 ),
