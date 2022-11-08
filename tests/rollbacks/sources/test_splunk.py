@@ -12,6 +12,7 @@ TEST_SPLUNK_AUTH = SplunkAuth(
     username='username',
     password='totally_a_password',
 )
+TEST_DEFAULT_CHECK_INTERVAL_S = 30
 
 
 def test_query_calls_process_result():
@@ -50,8 +51,31 @@ def test_process_result_bad_before_mark():
         'sticht.rollbacks.sources.splunk.SplunkMetricWatcher._get_splunk_results',
         autospec=True,
     )as mock_results:
+        mock_results.return_value = [
+            'test_data_1',
+            'test_data_2',
+        ]
+        watcher.query()
+
+    assert watcher.bad_before_mark is True
+
+
+def test_process_result_empty_result_number_query():
+    watcher = SplunkMetricWatcher(
+        label='test_query',
+        query='test_query',
+        query_type='number',
+        on_failure_callback=lambda _: None,
+        auth_callback=lambda: TEST_SPLUNK_AUTH,
+        upper_bound=3,
+    )
+    watcher._splunk = mock.Mock(spec=splunklib.client.Service)
+    with mock.patch(
+        'sticht.rollbacks.sources.splunk.SplunkMetricWatcher._get_splunk_results',
+        autospec=True,
+    )as mock_results:
         mock_results.return_value = []
-        watcher.query(lookback_seconds=30)
+        watcher.query()
 
     assert watcher.bad_before_mark is True
 
@@ -143,21 +167,13 @@ def test_login_calls_auth_callback():
     mock_credentials_callback.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    'check_interval_s', (
-        None,
-        0,
-        123,
-    ),
-)
-def test_from_config(check_interval_s):
+def test_from_config():
     assert SplunkMetricWatcher.from_config(
         config={
             'label': 'label',
             'query': 'query',
             'query_type': 'type',
         },
-        check_interval_s=check_interval_s,
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
     ) == SplunkMetricWatcher(
@@ -166,4 +182,5 @@ def test_from_config(check_interval_s):
         query_type='type',
         on_failure_callback=lambda _: None,
         auth_callback=lambda: TEST_SPLUNK_AUTH,
+        check_interval_s=TEST_DEFAULT_CHECK_INTERVAL_S,
     )

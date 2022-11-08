@@ -126,10 +126,8 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             return ''
 
     def get_metric_text(self, summary: bool) -> str:
-        metric_text_components = []
         if self.metric_watchers is not None and len(self.metric_watchers) > 0:
             failing = [w for w in self.metric_watchers if w.failing]
-
             if failing:
                 metric_text_components = [
                     Emoji(':alert:'),
@@ -141,7 +139,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 unknown = [
                     w
                     for w in self.metric_watchers
-                    if w.bad_before_mark is None
+                    if w.bad_before_mark is None or w.bad_after_mark is None
                 ]
 
                 bad_before_mark = [w for w in self.metric_watchers if w.bad_before_mark]
