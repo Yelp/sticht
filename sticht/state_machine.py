@@ -60,7 +60,7 @@ class DeploymentProcess(abc.ABC):
         float
     ] = None  # in normal operation, this will be None, but this lets tests set a max time.
 
-    def __init__(self,):
+    def __init__(self):
 
         self.event_loop = asyncio.get_event_loop()
         self.finished_event = asyncio.Event(loop=self.event_loop)

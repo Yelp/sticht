@@ -15,7 +15,7 @@ TEST_SPLUNK_AUTH = SplunkAuth(
 
 
 @mock.patch('sticht.rollbacks.sources.splunk.SplunkMetricWatcher.query')
-def test_watch_metrics_for_service_creates_watchers(mock_splunk_metric_watcher_query, tmp_path,):
+def test_watch_metrics_for_service_creates_watchers(mock_splunk_metric_watcher_query, tmp_path):
     service = 'serviceA'
     soa_dir = tmp_path
     (soa_dir / service).mkdir()

@@ -24,7 +24,7 @@ def _get_metric_configs_for_service_by_cluster(
 ) -> Dict[str, Dict[str, Any]]:  # TODO: add type for rollback file config
     configs = {}
     for filename in get_rollback_files_from_soaconfigs(soa_dir, service=service):
-        with open(filename, 'r') as file:
+        with open(filename) as file:
             configs[get_cluster_from_soaconfigs_filename(filename)] = yaml.safe_load(file)
     return configs
 
