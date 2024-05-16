@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ---
+default_language_version:
+    python: python3.8
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.1.0
+    rev: v4.5.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -32,15 +35,15 @@ repos:
       - id: fix-encoding-pragma
         args: ['--remove']
   - repo: https://github.com/pre-commit/mirrors-autopep8
-    rev: v1.4.2
+    rev: v2.0.4
     hooks:
       - id: autopep8
-  - repo: https://gitlab.com/pycqa/flake8
-    rev: 4.0.1
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
     hooks:
       - id: flake8
   - repo: https://github.com/asottile/reorder_python_imports
-    rev: v1.3.2
+    rev: v3.12.0
     hooks:
       - id: reorder-python-imports
         args: [
@@ -48,12 +51,11 @@ repos:
           '--remove-import', 'from __future__ import unicode_literals',
         ]
   - repo: https://github.com/asottile/pyupgrade
-    rev: v1.9.0
+    rev: v3.15.0
     hooks:
       - id: pyupgrade
         args: [--py3-plus]
   - repo: https://github.com/asottile/add-trailing-comma
-    rev: v0.7.1
+    rev: v3.1.0
     hooks:
       - id: add-trailing-comma
-        args: [--py36-plus]

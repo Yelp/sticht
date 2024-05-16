@@ -468,11 +468,13 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                     log_error(f'Exception while processing event: {traceback.format_exc()}')
                     log.debug(f'event: {event!r}')
         except Exception:
-            log_error('\n'.join(
-                'Uncaught error in listen_for_slack_events:',
-                traceback.format_exc(),
-                'Restarting event listener.',
-            ))
+            log_error(
+                '\n'.join(
+                    'Uncaught error in listen_for_slack_events:',
+                    traceback.format_exc(),
+                    'Restarting event listener.',
+                ),
+            )
             await self.listen_for_slack_events()
 
     def notify_users(self, message):

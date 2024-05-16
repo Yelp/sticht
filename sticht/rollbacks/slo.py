@@ -75,7 +75,7 @@ def get_slos_for_service(service, soa_dir) -> Generator:
 
         for sink in composite_sink.sinks():
             if not alert_config_by_ts_metric[
-                sink.source.timeseries, sink.source.metric
+                sink.source.timeseries, sink.source.metric,
             ].is_silent:
                 signalflow, rules = sink.generate_signalflow_signals_and_rules()
                 query = textwrap.dedent('\n'.join(signalflow))
