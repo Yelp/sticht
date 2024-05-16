@@ -20,7 +20,7 @@ setup(
     version='1.1.18',
     classifiers=[
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.8',
     ],
     install_requires=[
         'pytimeparse',
