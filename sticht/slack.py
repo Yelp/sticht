@@ -29,8 +29,8 @@ from sticht.state_machine import DeploymentProcess
 
 try:
     from scribereader import scribereader
-    from clog.readers import construct_conn_msg
-    from clog.readers import find_tail_host
+    from scribereader.clog.readers import construct_conn_msg
+    from scribereader.clog.readers import find_tail_host
 except ImportError:
     scribereader = None
     construct_conn_msg = None
