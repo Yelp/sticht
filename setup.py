@@ -34,7 +34,7 @@ setup(
     extras_require={
         'yelp_internal': [
             'yelp-clog>=7.1.1',
-            'scribereader>=1.1.1'
+            'scribereader>=1.1.1',
             'slo-transcoder>=3.2.3',
         ],
     },
