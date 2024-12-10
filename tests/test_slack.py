@@ -13,7 +13,7 @@
 # limitations under the License.
 from unittest import mock
 
-from slackclient import SlackClient
+from slack_bolt import App as SlackApp
 
 from sticht import slack
 
@@ -150,7 +150,7 @@ class DummySlackDeploymentProcess(slack.SlackDeploymentProcess):
         return '_begin'
 
     def get_slack_client(self):
-        mock_client = mock.Mock(spec=SlackClient)
+        mock_client = mock.Mock(spec=SlackApp)
         mock_client.api_call.return_value = {
             'ok': True,
             'message': {'ts': 10},
@@ -175,7 +175,7 @@ class ErrorSlackDeploymentProcess(DummySlackDeploymentProcess):
     default_slack_channel = '#dne'
 
     def get_slack_client(self):
-        mock_client = mock.Mock(spec=SlackClient)
+        mock_client = mock.Mock(spec=SlackApp)
         mock_client.api_call.return_value = {'ok': False, 'error': 'uh oh'}
         return mock_client
 

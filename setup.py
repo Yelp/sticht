@@ -24,7 +24,7 @@ setup(
     ],
     install_requires=[
         'pytimeparse',
-        'slackclient>=1.2.1',
+        'slack_bolt',
         'transitions',
         'mypy_extensions',
         'signalfx',

@@ -21,7 +21,9 @@ from typing import Optional
 
 import requests
 import transitions
-from slackclient import SlackClient
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
+from slack_bolt.async_app import AsyncApp
 from typing_extensions import TypedDict
 
 from sticht.state_machine import DeploymentProcess
@@ -104,7 +106,7 @@ def is_relevant_event(event):
     return False
 
 
-async def get_slack_events():
+async def get_slack_events_from_scribe():
     if scribereader is None:
         logging.error('Scribereader unavailable. Not tailing slack events.')
         return
@@ -149,6 +151,7 @@ class SlackBlockElement(TypedDict, total=False):
     value: str
     text: SlackBlockText
     confirm: SlackConfirmation
+    action_id: str
 
 
 class SlackBlock(TypedDict, total=False):
@@ -164,18 +167,22 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
     def __init__(self) -> None:
         super().__init__()
         self.human_readable_status = 'Initializing...'
+        # Expects a custom wrapper around App which includes both bot_token and app_token
         self.slack_client = self.get_slack_client()
+        self.slack_async_app = AsyncApp(token=self.slack_client.bot_token)
+        self.slack_async_app.action({'block_id': 'deployment_actions'})(self.handle_block_actions)
         self.last_action = None
         self.summary_blocks_str = ''
         self.detail_blocks_str = ''
         self.slack_channel = self.get_slack_channel()
         self.send_initial_slack_message()
 
+        self.event_queue = asyncio.Queue()
         asyncio.ensure_future(self.listen_for_slack_events(), loop=self.event_loop)
         asyncio.ensure_future(self.periodically_update_slack(), loop=self.event_loop)
 
     @abc.abstractmethod
-    def get_slack_client(self) -> SlackClient:
+    def get_slack_client(self) -> App:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -206,6 +213,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                 'emoji': True,
             },
             'value': button,
+            'action_id': f'button_{button}',
         }
         if not is_active:
             element['confirm'] = self.get_confirmation_object(button)
@@ -318,8 +326,16 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             return {'ok': False, 'error': 'Slack client does not exist'}
         else:
             try:
-                resp = self.slack_client.api_call(*args, **kwargs)
-                return resp
+                if 'params' in kwargs:
+                    # WebClient.api_call expects json strings, convert them here
+                    kwargs['params'] = {
+                        k: json.dumps(v) if not isinstance(
+                            v, str,
+                        ) else v for k, v in kwargs['params'].items()
+                    }
+                resp = self.slack_client.slack_app.client.api_call(*args, **kwargs)
+                # SlackResponse.data is json response dict
+                return resp.data
             except Exception as e:
                 # leaving error/warning logging to callers, only debug log here.
                 log.debug(f'Exception encountered when making Slack api call: {e}')
@@ -334,17 +350,21 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             print(f'Updating slack thread with: {message}', flush=True)
         if color:
             resp = self.slack_api_call(
-                'chat.postMessage',
-                channel=self.slack_channel,
-                attachments=[{'text': message, 'color': color}],
-                thread_ts=self.slack_ts,
+                api_method='chat.postMessage',
+                params={
+                    'channel': self.slack_channel,
+                    'attachments': [{'text': message, 'color': color}],
+                    'thread_ts': self.slack_ts,
+                },
             )
         else:
             resp = self.slack_api_call(
-                'chat.postMessage',
-                channel=self.slack_channel,
-                text=message,
-                thread_ts=self.slack_ts,
+                api_method='chat.postMessage',
+                params={
+                    'channel': self.slack_channel,
+                    'text': message,
+                    'thread_ts': self.slack_ts,
+                },
             )
 
         if resp['ok'] is not True:
@@ -356,9 +376,14 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         summary_blocks = self.get_summary_blocks_for_deployment()
         detail_blocks = self.get_detail_slack_blocks_for_deployment()
         resp = self.slack_api_call(
-            'chat.postMessage', blocks=truncate_blocks_text(summary_blocks), channel=self.slack_channel,
+            api_method='chat.postMessage',
+            params={
+                'blocks': truncate_blocks_text(summary_blocks),
+                'channel': self.slack_channel,
+            },
         )
         self.slack_ts = resp['message']['ts'] if resp and resp['ok'] else None
+        print(resp)
 
         self.slack_channel_id = resp.get('channel')
         if not self.slack_channel_id:
@@ -384,10 +409,12 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
             log_error(f"Posting to slack failed: {resp['error']}")
 
         resp = self.slack_api_call(
-            'chat.postMessage',
-            blocks=truncate_blocks_text(detail_blocks),
-            channel=self.slack_channel,
-            thread_ts=self.slack_ts,
+            api_method='chat.postMessage',
+            params={
+                'blocks': truncate_blocks_text(detail_blocks),
+                'channel': self.slack_channel,
+                'thread_ts': self.slack_ts,
+            },
         )
         self.detail_slack_ts = resp['message']['ts'] if resp and resp['ok'] else None
 
@@ -407,10 +434,12 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
         if self.summary_blocks_str != summary_blocks_str:
             resp = self.slack_api_call(
-                'chat.update',
-                channel=self.slack_channel_id,
-                blocks=truncate_blocks_text(summary_blocks),
-                ts=self.slack_ts,
+                api_method='chat.update',
+                params={
+                    'channel': self.slack_channel_id,
+                    'blocks': truncate_blocks_text(summary_blocks),
+                    'ts': self.slack_ts,
+                },
             )
             if resp['ok']:
                 self.old_summary_blocks_str = summary_blocks_str
@@ -420,10 +449,12 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
         if self.detail_blocks_str != detail_blocks_str:
             resp = self.slack_api_call(
-                'chat.update',
-                channel=self.slack_channel_id,
-                blocks=truncate_blocks_text(detail_blocks),
-                ts=self.detail_slack_ts,
+                api_method='chat.update',
+                params={
+                    'channel': self.slack_channel_id,
+                    'blocks': truncate_blocks_text(detail_blocks),
+                    'ts': self.detail_slack_ts,
+                },
             )
             if resp['ok']:
                 self.old_detail_blocks_str = detail_blocks_str
@@ -443,10 +474,48 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
     def is_relevant_buttonpress(self, buttonpress):
         return self.slack_ts == buttonpress.thread_ts
 
+    # Not used
+    def handle_button_press(self, event):
+        try:
+            log.debug(f'Got slack event: {event}')
+            buttonpress = event_to_buttonpress(event)
+            if self.is_relevant_buttonpress(buttonpress):
+                self.update_slack_thread(
+                    f'<@{buttonpress.username}> pressed {buttonpress.action}',
+                )
+                self.last_action = buttonpress.action
+
+                try:
+                    self.trigger(f'{buttonpress.action}_button_clicked')
+                except (transitions.core.MachineError, AttributeError):
+                    self.update_slack_thread(f'Error: {traceback.format_exc()}')
+            else:
+                log.debug(
+                    'But it was not relevant to this instance of mark-for-deployment',
+                )
+        except Exception:
+            log_error(f'Exception while processing event: {traceback.format_exc()}')
+            log.debug(f'event: {event!r}')
+
+    async def handle_block_actions(self, ack, body, client):
+        await ack()
+        # TODO: We can now handle button presses and reactions directly instead of just processing events
+        log.debug(f'handlingblock action {body}')
+        await self.event_queue.put(body)
+
+    async def get_slack_events(self):
+
+        handler = AsyncSocketModeHandler(self.slack_async_app, self.slack_client.app_token)
+        asyncio.create_task(handler.start_async())
+
+        while True:
+            event = await self.event_queue.get()
+            yield event
+
     async def listen_for_slack_events(self):
         log.debug('Listening for slack events...')
         try:
-            async for event in get_slack_events():
+            async for event in self.get_slack_events():
                 try:
                     log.debug(f'Got slack event: {event}')
                     buttonpress = event_to_buttonpress(event)
