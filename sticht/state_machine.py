@@ -63,7 +63,7 @@ class DeploymentProcess(abc.ABC):
     def __init__(self):
 
         self.event_loop = asyncio.get_event_loop()
-        self.finished_event = asyncio.Event(loop=self.event_loop)
+        self.finished_event = asyncio.Event()
         self.timer_running = False
 
         self.machine = transitions.extensions.LockedMachine(
