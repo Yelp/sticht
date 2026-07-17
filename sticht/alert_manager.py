@@ -113,7 +113,6 @@ class AlertmanagerClient:
                 "Unknown request type",
                 f"Request type: {request_type!r}",
             )
-        log.debug(f"alertmanager response status_code: {resp.status_code}")
         if resp.status_code != 200:
             raise AlertmanagerError(
                 f"Error while retrieving response from alertmanager: {resp.text}",
