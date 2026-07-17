@@ -4,9 +4,55 @@ from typing import List
 from typing import Mapping
 from typing import Optional
 from typing import Sequence
+from typing import TypedDict
 from typing import Union
 
 import requests
+
+
+class AlertStatus(TypedDict):
+    state: str
+    silencedBy: List[str]
+    inhibitedBy: List[str]
+    mutedBy: List[str]
+
+
+class Receiver(TypedDict):
+    name: str
+
+
+class Alert(TypedDict):
+    labels: Dict[str, str]
+    annotations: Dict[str, str]
+    receivers: List[Receiver]
+    fingerprint: str
+    startsAt: str
+    updatedAt: str
+    endsAt: str
+    generatorURL: str
+    status: AlertStatus
+
+
+class Matcher(TypedDict):
+    name: str
+    value: str
+    isRegex: bool
+    isEqual: bool
+
+
+class SilenceStatus(TypedDict):
+    state: str
+
+
+class Silence(TypedDict):
+    id: str
+    status: SilenceStatus
+    updatedAt: str
+    matchers: List[Matcher]
+    startsAt: str
+    endsAt: str
+    createdBy: str
+    comment: str
 
 
 class AlertmanagerError(Exception):
@@ -32,7 +78,7 @@ class AlertmanagerClient:
         self,
         filters: Optional[Sequence[str]] = None,
         params: Optional[Mapping[str, str]] = None,
-    ) -> Mapping[str, Union[str, Sequence[str]]]:
+    ) -> Mapping[str, str | Sequence[str]]:
         parameters: Dict[str, Union[str, Sequence[str]]] = {}
         # create filter parameter using specified filters
         if filters is not None:
@@ -44,7 +90,7 @@ class AlertmanagerClient:
 
     def _make_matchers_json(
         self, filters: Optional[Sequence[str]],
-    ) -> List[Dict[str, object]]:
+    ) -> List[Matcher]:
         matchers: List[Dict[str, object]] = []
         if filters is None:
             return matchers
@@ -124,16 +170,13 @@ class AlertmanagerClient:
         self,
         filters: Optional[Sequence[str]] = None,
         params: Optional[Mapping[str, str]] = None,
-    ) -> Any:
+    ) -> List[Alert]:
         return self._make_request(
             path='/alerts', params=self._make_params(filters, params),
         )
 
-    def cluster_status(self) -> Any:
-        return self._make_request(path='/status')
-
     def fetch_silences(
         self,
         filters: Optional[Sequence[str]] = None,
-    ) -> Any:
+    ) -> List[Silence]:
         return self._make_request(path='/silences', params=self._make_params(filters))
