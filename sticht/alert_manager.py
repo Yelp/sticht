@@ -5,6 +5,7 @@ from typing import Mapping
 from typing import Optional
 from typing import Sequence
 from typing import TypedDict
+from typing import Union
 
 import requests
 
@@ -77,8 +78,8 @@ class AlertmanagerClient:
         self,
         filters: Optional[Sequence[str]] = None,
         params: Optional[Mapping[str, str]] = None,
-    ) -> Mapping[str, str | Sequence[str]]:
-        parameters: Dict[str, str | Sequence[str]] = {}
+    ) -> Mapping[str, Union[str, Sequence[str]]]:
+        parameters: Dict[str, Union[str, Sequence[str]]] = {}
         # create filter parameter using specified filters
         if filters is not None:
             parameters['filter'] = filters
@@ -123,7 +124,7 @@ class AlertmanagerClient:
     def _make_request(
         self,
         path: str,
-        params: Optional[Mapping[str, str | Sequence[str]]] = None,
+        params: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
         json: Any = None,
         request_type: str = 'GET',
     ) -> Any:
