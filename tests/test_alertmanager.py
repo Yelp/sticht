@@ -1,6 +1,6 @@
 from unittest import mock
 
-from sticht.alert_manager import AlertmanagerClient
+from sticht.alertmanager import AlertmanagerClient
 
 
 def test_alerts_all():
@@ -10,7 +10,7 @@ def test_alerts_all():
     client = AlertmanagerClient(alertmanager_url='a_url')
     with mock.patch.object(client, '_make_request'):
         client.fetch_alerts()
-        client._make_request.assert_called_with(path='/alerts', params={})
+        client._send_request.assert_called_with(path='/alerts', params={})
 
 
 def test_alerts_with_filters():
@@ -22,7 +22,7 @@ def test_alerts_with_filters():
     some_filters = ('a', 'b')
     with mock.patch.object(client, '_make_request'):
         client.fetch_alerts(filters=some_filters)
-        client._make_request.assert_called_with(
+        client._send_request.assert_called_with(
             path='/alerts', params={'filter': some_filters},
         )
 
@@ -38,7 +38,7 @@ def test_alerts_with_additional_params():
     expected_params = {**{'filter': some_filters}, **additional_params}
     with mock.patch.object(client, '_make_request'):
         client.fetch_alerts(filters=some_filters, params=additional_params)
-        client._make_request.assert_called_with(path='/alerts', params=expected_params)
+        client._send_request.assert_called_with(path='/alerts', params=expected_params)
 
 
 def test_fetch_silences():
@@ -51,6 +51,6 @@ def test_fetch_silences():
     expected_params = {**{'filter': some_filters}}
     with mock.patch.object(client, '_make_request'):
         client.fetch_silences(filters=some_filters)
-        client._make_request.assert_called_with(
+        client._send_request.assert_called_with(
             path='/silences', params=expected_params,
         )

@@ -9,6 +9,8 @@ from typing import Union
 
 import requests
 
+DEFAULT_ALERTMANAGER_TIMEOUT_S = 60
+
 
 class AlertStatus(TypedDict):
     state: str
@@ -55,30 +57,38 @@ class Silence(TypedDict):
     comment: str
 
 
+class QueryParams(TypedDict, total=False):
+    active: bool
+    silenced: bool
+    inhibited: bool
+    unprocessed: bool
+    receiver: str
+
+
 class AlertmanagerError(Exception):
     """
     Exception class for alertmanager error
     """
 
-    def __init__(self, message, errors):
+    def __init__(self, message: str, extra_details: str) -> None:
         super().__init__(message)
-        self.errors = errors
+        self.extra_details = extra_details
 
 
 class AlertmanagerClient:
     def __init__(
         self,
         alertmanager_url: str,
-        timeout: int = 60,
+        timeout: int = DEFAULT_ALERTMANAGER_TIMEOUT_S,
     ) -> None:
-        self.alertmanager_url = alertmanager_url
+        self.alertmanager_url = alertmanager_url.rstrip('/')
         self.timeout = timeout
 
     def _make_params(
         self,
         filters: Optional[Sequence[str]] = None,
         params: Optional[Mapping[str, str]] = None,
-    ) -> Mapping[str, Union[str, Sequence[str]]]:
+    ) -> Dict[str, Union[str, Sequence[str]]]:
         parameters: Dict[str, Union[str, Sequence[str]]] = {}
         # create filter parameter using specified filters
         if filters is not None:
@@ -121,44 +131,22 @@ class AlertmanagerClient:
             )
         return matchers
 
-    def _make_request(
+    def _send_request(
         self,
         path: str,
         params: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
         json: Any = None,
-        request_type: str = 'GET',
     ) -> Any:
         url = f"{self.alertmanager_url}/api/v2/{path.strip('/')}"
         headers = {
             'User-Agent': 'sticht',
         }
-
-        if request_type == 'GET':
-            resp = requests.get(
-                url=url,
-                params=params,
-                headers=headers,
-                timeout=self.timeout,
-            )
-        elif request_type == 'POST':
-            resp = requests.post(
-                url=url,
-                headers=headers,
-                json=json,
-                timeout=self.timeout,
-            )
-        elif request_type == 'DELETE':
-            resp = requests.delete(
-                url=url,
-                headers=headers,
-                timeout=self.timeout,
-            )
-            return resp
-        else:
-            raise AlertmanagerError(
-                'Unknown request type',
-                f'Request type: {request_type!r}',
-            )
+        resp = requests.get(
+            url=url,
+            params=params,
+            headers=headers,
+            timeout=self.timeout,
+        )
         if resp.status_code != 200:
             raise AlertmanagerError(
                 f'Error while retrieving response from alertmanager: {resp.text}',
@@ -171,7 +159,7 @@ class AlertmanagerClient:
         filters: Optional[Sequence[str]] = None,
         params: Optional[Mapping[str, str]] = None,
     ) -> List[Alert]:
-        return self._make_request(
+        return self._send_request(
             path='/alerts', params=self._make_params(filters, params),
         )
 
@@ -179,4 +167,4 @@ class AlertmanagerClient:
         self,
         filters: Optional[Sequence[str]] = None,
     ) -> List[Silence]:
-        return self._make_request(path='/silences', params=self._make_params(filters))
+        return self._send_request(path='/silences', params=self._make_params(filters))
