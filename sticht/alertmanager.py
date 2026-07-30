@@ -1,11 +1,7 @@
-from typing import Any
 from typing import Dict
 from typing import List
-from typing import Mapping
-from typing import Optional
 from typing import Sequence
 from typing import TypedDict
-from typing import Union
 
 import requests
 
@@ -35,34 +31,21 @@ class Alert(TypedDict):
     status: AlertStatus
 
 
-class Matcher(TypedDict):
-    name: str
-    value: str
-    isRegex: bool
-    isEqual: bool
-
-
-class SilenceStatus(TypedDict):
-    state: str
-
-
-class Silence(TypedDict):
-    id: str
-    status: SilenceStatus
-    updatedAt: str
-    matchers: List[Matcher]
-    startsAt: str
-    endsAt: str
-    createdBy: str
-    comment: str
-
-
-class QueryParams(TypedDict, total=False):
-    active: bool
+class BaseAlertParams(TypedDict):
     silenced: bool
     inhibited: bool
     unprocessed: bool
-    receiver: str
+
+
+class AlertQueryParams(BaseAlertParams):
+    filter: Sequence[str]
+
+
+DEFAULT_ALERT_PARAMS: BaseAlertParams = {
+    'silenced': False,
+    'inhibited': False,
+    'unprocessed': False,
+}
 
 
 class AlertmanagerError(Exception):
@@ -84,66 +67,19 @@ class AlertmanagerClient:
         self.alertmanager_url = alertmanager_url.rstrip('/')
         self.timeout = timeout
 
-    def _make_params(
-        self,
-        filters: Optional[Sequence[str]] = None,
-        params: Optional[Mapping[str, str]] = None,
-    ) -> Dict[str, Union[str, Sequence[str]]]:
-        parameters: Dict[str, Union[str, Sequence[str]]] = {}
-        # create filter parameter using specified filters
-        if filters is not None:
-            parameters['filter'] = filters
-        if params is not None:
-            parameters.update(params)
-
-        return parameters
-
-    def _make_matchers_json(
-        self, filters: Optional[Sequence[str]],
-    ) -> List[Matcher]:
-        matchers: List[Matcher] = []
-        if filters is None:
-            return matchers
-        for each_filter in filters:
-            if '!~' in each_filter:
-                key, value = each_filter.split('!~')
-                is_regex = True
-                equals = False
-            elif '=~' in each_filter:
-                key, value = each_filter.split('=~')
-                is_regex = True
-                equals = True
-            elif '!=' in each_filter:
-                key, value = each_filter.split('!=')
-                is_regex = False
-                equals = False
-            elif '=' in each_filter:
-                key, value = each_filter.split('=')
-                is_regex = False
-                equals = True
-            else:
-                raise AlertmanagerError(
-                    'Invalid filter',
-                    f'Filter: {each_filter!r}',
-                )
-            matchers.append(
-                {'isEqual': equals, 'isRegex': is_regex, 'name': key, 'value': value},
-            )
-        return matchers
-
     def _send_request(
         self,
         path: str,
-        params: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
-        json: Any = None,
-    ) -> Any:
+        params: AlertQueryParams,
+    ) -> List[Alert]:
         url = f"{self.alertmanager_url}/api/v2/{path.strip('/')}"
         headers = {
             'User-Agent': 'sticht',
         }
         resp = requests.get(
             url=url,
-            params=params,
+            # types-requests doesn't recognize TypedDicts as valid params
+            params=params,  # type: ignore[arg-type]
             headers=headers,
             timeout=self.timeout,
         )
@@ -156,15 +92,12 @@ class AlertmanagerClient:
 
     def fetch_alerts(
         self,
-        filters: Optional[Sequence[str]] = None,
-        params: Optional[Mapping[str, str]] = None,
+        # NOTE: you can technically fetch alerts with no filters
+        # ...but for our current usecases, that's not something
+        # we'll ever do
+        filters: Sequence[str],
     ) -> List[Alert]:
         return self._send_request(
-            path='/alerts', params=self._make_params(filters, params),
+            path='/alerts',
+            params={**DEFAULT_ALERT_PARAMS, 'filter': filters},
         )
-
-    def fetch_silences(
-        self,
-        filters: Optional[Sequence[str]] = None,
-    ) -> List[Silence]:
-        return self._send_request(path='/silences', params=self._make_params(filters))
