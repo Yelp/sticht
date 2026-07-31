@@ -1,9 +1,11 @@
 import logging
+import threading
 import time
 from datetime import datetime
 from datetime import timezone
 from typing import List
 from typing import Optional
+from typing import Tuple
 
 from typing_extensions import Protocol
 
@@ -124,3 +126,22 @@ class AlertManagerWatcher:
         while True:
             self.query()
             time.sleep(self.check_interval_s)
+
+
+def watch_alertmanager_alerts(
+    alertmanager_url: str,
+    filters: List[List[str]],
+    individual_alert_callback: IndividualAlertCallback,
+    all_alert_callback: AllAlertCallback,
+    check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
+) -> Tuple[threading.Thread, AlertManagerWatcher]:
+    watcher = AlertManagerWatcher(
+        alertmanager_url=alertmanager_url,
+        filters=filters,
+        individual_alert_callback=individual_alert_callback,
+        all_alert_callback=all_alert_callback,
+        check_interval_s=check_interval_s,
+    )
+    thread = threading.Thread(target=watcher.watch, daemon=True)
+    thread.start()
+    return thread, watcher
