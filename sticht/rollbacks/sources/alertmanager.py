@@ -15,6 +15,8 @@ from sticht.alertmanager import AlertmanagerClient
 log = logging.getLogger(__name__)
 
 _DEFAULT_CHECK_INTERVAL_S = 30
+# XXX: should we maybe have this be passed down from paasta so that it's not hardcoded here?
+_DRY_RUN_LABEL = 'paasta_rollback_dry_run'
 
 
 def _parse_iso_timestamp(ts: str) -> float:
@@ -23,7 +25,7 @@ def _parse_iso_timestamp(ts: str) -> float:
 
 
 class IndividualAlertCallback(Protocol):
-    def __call__(self, label: str, *, failing: bool) -> None: ...
+    def __call__(self, label: str, *, failing: bool, dry_run: bool = False) -> None: ...
 
 
 class AllAlertCallback(Protocol):
@@ -67,6 +69,7 @@ class AlertManagerWatcher:
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
         self.active_alerts: set[str] = set()
+        self.active_dry_run_alerts: set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
         self._client = AlertmanagerClient(alertmanager_url)
@@ -90,6 +93,8 @@ class AlertManagerWatcher:
         # NOTE: this is just tracking alert names for now - we can store the whole payload if necessary later on
         # ...but then we'll definitely need to change the set shenanigans below if we just swap things in-place here
         alerts_seen: set[str] = set()
+        dry_run_alerts_seen: set[str] = set()
+
         for alert in alerts:
             try:
                 starts_at = _parse_iso_timestamp(alert['startsAt'])
@@ -103,7 +108,18 @@ class AlertManagerWatcher:
                 # XXX: print message about excluded alert?
                 continue
 
-            alerts_seen.add(alert['labels']['alertname'])
+            alertname = alert['labels']['alertname']
+            if alert['labels'].get(_DRY_RUN_LABEL) == 'true':
+                dry_run_alerts_seen.add(alertname)
+            else:
+                alerts_seen.add(alertname)
+
+        # notify about newly failing dry-run alerts (informational only)
+        for alert in dry_run_alerts_seen - self.active_dry_run_alerts:
+            self.individual_alert_callback(alert, failing=True, dry_run=True)
+        for alert in self.active_dry_run_alerts - dry_run_alerts_seen:
+            self.individual_alert_callback(alert, failing=False, dry_run=True)
+        self.active_dry_run_alerts = dry_run_alerts_seen
 
         # ping users about newly failing alerts
         new_alerts = alerts_seen - self.active_alerts
