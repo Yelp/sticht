@@ -4,6 +4,9 @@ from typing import Optional
 
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.slo import watch_slos_for_service
+from sticht.rollbacks.sources.alertmanager import _DEFAULT_CHECK_INTERVAL_S
+from sticht.rollbacks.sources.alertmanager import AlertManagerWatcher
+from sticht.rollbacks.sources.alertmanager import watch_alertmanager_alerts
 from sticht.slack import Emoji
 from sticht.slack import SlackDeploymentProcess
 
@@ -11,6 +14,7 @@ from sticht.slack import SlackDeploymentProcess
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     def __init__(self) -> None:
         self.slo_watchers: Optional[List[SLOWatcher]] = None
+        self.alertmanager_watcher: Optional[AlertManagerWatcher] = None
         # normally you'd expect that this be called first thing in __init__,
         # but the way this class is constructed means that one of the methods called
         # by our superclass's constructor will throw when it tries to access the watcher
@@ -29,6 +33,11 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 {'type': 'section', 'text': {'type': 'mrkdwn', 'text': slo_text}},
             )
 
+        alertmanager_text = self.get_alertmanager_text(summary=False)
+        if alertmanager_text:
+            blocks.append(
+                {'type': 'section', 'text': {'type': 'mrkdwn', 'text': alertmanager_text}},
+            )
         return blocks
 
     def get_extra_summary_parts_for_deployment(self) -> List[str]:
@@ -36,6 +45,10 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         slo_text = self.get_slo_text(summary=True)
         if slo_text:
             parts.append(slo_text)
+
+        alertmanager_text = self.get_alertmanager_text(summary=True)
+        if alertmanager_text:
+            parts.append(alertmanager_text)
 
         return parts
 
@@ -133,13 +146,34 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     def get_auto_rollback_delay(self) -> float:
         raise NotImplementedError()
 
+    def start_alertmanager_watcher_threads(
+        self,
+        alertmanager_url: str,
+        filters: List[List[str]],
+        check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
+    ) -> None:
+        _, self.alertmanager_watcher = watch_alertmanager_alerts(
+            alertmanager_url=alertmanager_url,
+            filters=filters,
+            individual_alert_callback=self.individual_alertmanager_callback,
+            all_alert_callback=self.all_alertmanager_callback,
+            check_interval_s=check_interval_s,
+        )
+
     def any_slo_failing(self) -> bool:
         return self.auto_rollbacks_enabled() and self.slo_watchers is not None and any(
             w.failing for w in self.slo_watchers
         )
 
+    def any_alertmanager_failing(self) -> bool:
+        return (
+            self.auto_rollbacks_enabled()
+            and self.alertmanager_watcher is not None
+            and len(self.alertmanager_watcher.active_alerts) > 0
+        )
+
     def any_rollback_condition_failing(self) -> bool:
-        return self.any_slo_failing()
+        return self.any_slo_failing() or self.any_alertmanager_failing()
 
     def individual_slo_callback(self, label: str, bad: Optional[bool]) -> None:
         if bad:
@@ -153,6 +187,45 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         else:
             self.trigger('slos_stopped_failing')
         self.update_slack()
+
+    def individual_alertmanager_callback(self, label: str, failing: bool) -> None:
+        if failing:
+            self.update_slack_thread(f'AlertManager alert started firing: {label}', color='danger')
+        else:
+            self.update_slack_thread(f'AlertManager alert resolved: {label}', color='good')
+        self.update_slack()
+
+    def all_alertmanager_callback(self, failing: bool) -> None:
+        if failing:
+            self.trigger('alertmanager_started_failing')
+        else:
+            self.trigger('alertmanager_stopped_failing')
+        self.update_slack()
+
+    def get_alertmanager_text(self, summary: bool) -> str:
+        if self.alertmanager_watcher is not None:
+            all_active = self.alertmanager_watcher.active_alerts
+            if all_active:
+                components = [
+                    Emoji(':alert:'),
+                    f'{len(all_active)} AlertManager alert(s) firing:\n',
+                ]
+                for alert_name in sorted(all_active):
+                    components.append(f'{alert_name}\n')
+            else:
+                components = [
+                    Emoji(':ok_hand:'),
+                    'No AlertManager alerts firing.',
+                ]
+            if summary:
+                if self.is_terminal_state(self.state):
+                    return ''
+                return ' '.join([c for c in components if isinstance(c, Emoji)])
+            else:
+                if self.is_terminal_state(self.state):
+                    return ' '.join([c for c in components if not isinstance(c, Emoji)])
+                return ' '.join(components)
+        return ''
 
     def start_auto_rollback_countdown(self, trigger: str, extra_text: str) -> None:
         self.start_timer(
