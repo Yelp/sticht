@@ -188,11 +188,12 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             self.trigger('slos_stopped_failing')
         self.update_slack()
 
-    def individual_alertmanager_callback(self, label: str, failing: bool) -> None:
+    def individual_alertmanager_callback(self, label: str, failing: bool, dry_run: bool = False) -> None:
+        prefix = '[DRY-RUN] ' if dry_run else ''
         if failing:
-            self.update_slack_thread(f'AlertManager alert started firing: {label}', color='danger')
+            self.update_slack_thread(f'{prefix}AlertManager alert started firing: {label}', color='danger')
         else:
-            self.update_slack_thread(f'AlertManager alert resolved: {label}', color='good')
+            self.update_slack_thread(f'{prefix}AlertManager alert resolved: {label}', color='good')
         self.update_slack()
 
     def all_alertmanager_callback(self, failing: bool) -> None:
