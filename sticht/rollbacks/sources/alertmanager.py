@@ -3,6 +3,7 @@ import threading
 import time
 from datetime import datetime
 from datetime import timezone
+from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -11,12 +12,17 @@ from typing_extensions import Protocol
 
 from sticht.alertmanager import Alert
 from sticht.alertmanager import AlertmanagerClient
+try:
+    import yelp_meteorite
+except ImportError:
+    yelp_meteorite = None
 
 log = logging.getLogger(__name__)
 
 _DEFAULT_CHECK_INTERVAL_S = 30
 # XXX: should we maybe have this be passed down from paasta so that it's not hardcoded here?
 _DRY_RUN_LABEL = 'paasta_rollback_dry_run'
+METRICS_INTERFACE_BASE_NAME = 'sticht.alertmanager'
 
 
 def _parse_iso_timestamp(ts: str) -> float:
@@ -60,6 +66,7 @@ class AlertManagerWatcher:
         filters: List[List[str]],
         individual_alert_callback: IndividualAlertCallback,
         all_alert_callback: AllAlertCallback,
+        labels: Dict[str, str],
         # XXX: our CEP also includes some tunables for how many polls alerts need to be firing/not-firing for
         # that we'll want to add here later
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
@@ -68,11 +75,12 @@ class AlertManagerWatcher:
         self.filters = filters
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
+        self.labels = labels
         self.active_alerts: set[str] = set()
         self.active_dry_run_alerts: set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
-        self._client = AlertmanagerClient(alertmanager_url)
+        self._client = AlertmanagerClient(alertmanager_url, labels)
 
     def query(self) -> None:
         all_alerts: List[Alert] = []
@@ -80,6 +88,14 @@ class AlertManagerWatcher:
             try:
                 all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
             except Exception:
+                if yelp_meteorite:
+                    yelp_meteorite.create_counter(
+                        f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
+                        default_dimensions={
+                            'paasta_service': self.labels.get('service', ''),
+                            'paasta_deploy_group': self.labels.get('deploy_group', ''),
+                        },
+                    ).count()
                 log.exception(
                     f'Error fetching alerts from AlertManager for filter group {filter_group}, '
                     f'continuing with remaining filter groups',
@@ -149,6 +165,7 @@ def watch_alertmanager_alerts(
     filters: List[List[str]],
     individual_alert_callback: IndividualAlertCallback,
     all_alert_callback: AllAlertCallback,
+    labels: Dict[str, str],
     check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
 ) -> Tuple[threading.Thread, AlertManagerWatcher]:
     watcher = AlertManagerWatcher(
@@ -157,6 +174,7 @@ def watch_alertmanager_alerts(
         individual_alert_callback=individual_alert_callback,
         all_alert_callback=all_alert_callback,
         check_interval_s=check_interval_s,
+        labels=labels,
     )
     thread = threading.Thread(target=watcher.watch, daemon=True)
     thread.start()
