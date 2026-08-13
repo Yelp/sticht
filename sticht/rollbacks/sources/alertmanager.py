@@ -83,24 +83,38 @@ class AlertManagerWatcher:
         self._client = AlertmanagerClient(alertmanager_url, labels)
 
     def query(self) -> None:
-        all_alerts: List[Alert] = []
-        for filter_group in self.filters:
-            try:
-                all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
-            except Exception:
-                if yelp_meteorite:
-                    yelp_meteorite.create_counter(
-                        f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
-                        default_dimensions={
-                            'paasta_service': self.labels.get('service', ''),
-                            'paasta_deploy_group': self.labels.get('deploy_group', ''),
-                        },
-                    ).count()
-                log.exception(
-                    f'Error fetching alerts from AlertManager for filter group {filter_group}, '
-                    f'continuing with remaining filter groups',
-                )
-        self.process_result(all_alerts)
+        timer = None
+        if yelp_meteorite:
+            timer = yelp_meteorite.create_timer(
+                f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_poll_duration_ms',
+                default_dimensions={
+                    'paasta_service': self.labels.get('service', ''),
+                    'paasta_deploy_group': self.labels.get('deploy_group', ''),
+                },
+            )
+            timer.start()
+        try:
+            all_alerts: List[Alert] = []
+            for filter_group in self.filters:
+                try:
+                    all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
+                except Exception:
+                    if yelp_meteorite:
+                        yelp_meteorite.create_counter(
+                            f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
+                            default_dimensions={
+                                'paasta_service': self.labels.get('service', ''),
+                                'paasta_deploy_group': self.labels.get('deploy_group', ''),
+                            },
+                        ).count()
+                    log.exception(
+                        f'Error fetching alerts from AlertManager for filter group {filter_group}, '
+                        f'continuing with remaining filter groups',
+                    )
+            self.process_result(all_alerts)
+        finally:
+            if timer:
+                timer.stop()
 
     def process_result(
         self,
