@@ -66,7 +66,7 @@ class AlertManagerWatcher:
         filters: List[List[str]],
         individual_alert_callback: IndividualAlertCallback,
         all_alert_callback: AllAlertCallback,
-        labels: Dict[str, str],
+        labels: Optional[Dict[str, str]] = None,
         # XXX: our CEP also includes some tunables for how many polls alerts need to be firing/not-firing for
         # that we'll want to add here later
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
@@ -75,7 +75,7 @@ class AlertManagerWatcher:
         self.filters = filters
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
-        self.labels = labels
+        self.labels = labels if labels is not None else {}
         self.active_alerts: set[str] = set()
         self.active_dry_run_alerts: set[str] = set()
         self.individual_alert_callback = individual_alert_callback
@@ -187,7 +187,7 @@ def watch_alertmanager_alerts(
     filters: List[List[str]],
     individual_alert_callback: IndividualAlertCallback,
     all_alert_callback: AllAlertCallback,
-    labels: Dict[str, str],
+    labels: Optional[Dict[str, str]] = None,
     check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
 ) -> Tuple[threading.Thread, AlertManagerWatcher]:
     watcher = AlertManagerWatcher(
