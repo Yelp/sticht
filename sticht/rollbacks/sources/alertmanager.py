@@ -112,6 +112,14 @@ class AlertManagerWatcher:
                         f'continuing with remaining filter groups',
                     )
             self.process_result(all_alerts)
+            if yelp_meteorite:
+                yelp_meteorite.create_counter(
+                    f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_alerts_checked',
+                    default_dimensions={
+                        'paasta_service': self.labels.get('service', ''),
+                        'paasta_deploy_group': self.labels.get('deploy_group', ''),
+                    },
+                ).count(len(all_alerts))
         finally:
             if timer:
                 timer.stop()
