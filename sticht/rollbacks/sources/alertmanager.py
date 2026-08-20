@@ -10,12 +10,9 @@ from typing import Tuple
 
 from typing_extensions import Protocol
 
+import sticht.metrics as metrics
 from sticht.alertmanager import Alert
 from sticht.alertmanager import AlertmanagerClient
-try:
-    import yelp_meteorite
-except ImportError:
-    yelp_meteorite = None
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +55,8 @@ class AlertManagerWatcher:
         deploy_start_time: Unix timestamp; alerts firing before this time are treated as pre-existing and ignored
             (unless they recover mid-deploy).
         check_interval_s: how often (in seconds) to poll AlertManager for alerts
+        extra_monitoring_labels: optional dict of key-value pairs attached to metrics, enabling
+            deploy group or service grouping in monitoring dashboards.
     """
 
     def __init__(
@@ -66,7 +65,7 @@ class AlertManagerWatcher:
         filters: List[List[str]],
         individual_alert_callback: IndividualAlertCallback,
         all_alert_callback: AllAlertCallback,
-        labels: Optional[Dict[str, str]] = None,
+        extra_monitoring_labels: Optional[Dict[str, str]] = None,
         # XXX: our CEP also includes some tunables for how many polls alerts need to be firing/not-firing for
         # that we'll want to add here later
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
@@ -75,54 +74,44 @@ class AlertManagerWatcher:
         self.filters = filters
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
-        self.labels = labels if labels is not None else {}
+        self.labels = extra_monitoring_labels if extra_monitoring_labels is not None else {}
         self.active_alerts: set[str] = set()
         self.active_dry_run_alerts: set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
-        self._client = AlertmanagerClient(alertmanager_url, labels)
+        self._client = AlertmanagerClient(alertmanager_url, extra_monitoring_labels)
 
     def query(self) -> None:
-        timer = None
-        if yelp_meteorite:
-            timer = yelp_meteorite.create_timer(
-                f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_poll_duration_ms',
-                default_dimensions={
-                    'paasta_service': self.labels.get('service', ''),
-                    'paasta_deploy_group': self.labels.get('deploy_group', ''),
-                },
-            )
-            timer.start()
-        try:
+        with metrics.create_timer(
+            f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_poll_duration_ms',
+            default_dimensions={
+                'paasta_service': self.labels.get('service', ''),
+                'paasta_deploy_group': self.labels.get('deploy_group', ''),
+            },
+        ):
             all_alerts: List[Alert] = []
             for filter_group in self.filters:
                 try:
                     all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
                 except Exception:
-                    if yelp_meteorite:
-                        yelp_meteorite.create_counter(
-                            f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
-                            default_dimensions={
-                                'paasta_service': self.labels.get('service', ''),
-                                'paasta_deploy_group': self.labels.get('deploy_group', ''),
-                            },
-                        ).count()
+                    metrics.create_counter(
+                        f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
+                        default_dimensions={
+                            self.labels,
+                        },
+                    ).count()
                     log.exception(
                         f'Error fetching alerts from AlertManager for filter group {filter_group}, '
                         f'continuing with remaining filter groups',
                     )
             self.process_result(all_alerts)
-            if yelp_meteorite:
-                yelp_meteorite.create_counter(
-                    f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_alerts_checked',
-                    default_dimensions={
-                        'paasta_service': self.labels.get('service', ''),
-                        'paasta_deploy_group': self.labels.get('deploy_group', ''),
-                    },
-                ).count(len(all_alerts))
-        finally:
-            if timer:
-                timer.stop()
+            metrics.create_counter(
+                f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_alerts_checked',
+                default_dimensions={
+                    'paasta_service': self.labels.get('service', ''),
+                    'paasta_deploy_group': self.labels.get('deploy_group', ''),
+                },
+            ).count(len(all_alerts))
 
     def process_result(
         self,
@@ -196,7 +185,7 @@ def watch_alertmanager_alerts(
         individual_alert_callback=individual_alert_callback,
         all_alert_callback=all_alert_callback,
         check_interval_s=check_interval_s,
-        labels=labels,
+        extra_monitoring_labels=labels,
     )
     thread = threading.Thread(target=watcher.watch, daemon=True)
     thread.start()
