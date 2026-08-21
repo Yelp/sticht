@@ -151,7 +151,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         self,
         alertmanager_url: str,
         filters: List[List[str]],
-        labels: Dict[str, str],
+        extra_monitoring_labels: Optional[Dict[str, str]] = None,
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
     ) -> None:
         _, self.alertmanager_watcher = watch_alertmanager_alerts(
@@ -159,7 +159,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             filters=filters,
             individual_alert_callback=self.individual_alertmanager_callback,
             all_alert_callback=self.all_alertmanager_callback,
-            labels=labels,
+            extra_monitoring_labels=extra_monitoring_labels,
             check_interval_s=check_interval_s,
         )
 

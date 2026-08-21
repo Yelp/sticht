@@ -74,7 +74,7 @@ class AlertManagerWatcher:
         self.filters = filters
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
-        self.labels = extra_monitoring_labels if extra_monitoring_labels is not None else {}
+        self.extra_monitoring_labels = extra_monitoring_labels if extra_monitoring_labels is not None else {}
         self.active_alerts: set[str] = set()
         self.active_dry_run_alerts: set[str] = set()
         self.individual_alert_callback = individual_alert_callback
@@ -84,33 +84,29 @@ class AlertManagerWatcher:
     def query(self) -> None:
         with metrics.create_timer(
             f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_poll_duration_ms',
-            default_dimensions={
-                'paasta_service': self.labels.get('service', ''),
-                'paasta_deploy_group': self.labels.get('deploy_group', ''),
-            },
+            default_dimensions=self.extra_monitoring_labels,
         ):
             all_alerts: List[Alert] = []
+            api_errors = 0
             for filter_group in self.filters:
                 try:
                     all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
                 except Exception:
-                    metrics.create_counter(
-                        f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
-                        default_dimensions={
-                            self.labels,
-                        },
-                    ).count()
+                    api_errors += 1
                     log.exception(
                         f'Error fetching alerts from AlertManager for filter group {filter_group}, '
                         f'continuing with remaining filter groups',
                     )
+
+            metrics.create_counter(
+                f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
+                default_dimensions=self.extra_monitoring_labels,
+            ).count(api_errors)
+
             self.process_result(all_alerts)
             metrics.create_counter(
                 f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_alerts_checked',
-                default_dimensions={
-                    'paasta_service': self.labels.get('service', ''),
-                    'paasta_deploy_group': self.labels.get('deploy_group', ''),
-                },
+                default_dimensions=self.extra_monitoring_labels,
             ).count(len(all_alerts))
 
     def process_result(
@@ -176,7 +172,7 @@ def watch_alertmanager_alerts(
     filters: List[List[str]],
     individual_alert_callback: IndividualAlertCallback,
     all_alert_callback: AllAlertCallback,
-    labels: Optional[Dict[str, str]] = None,
+    extra_monitoring_labels: Optional[Dict[str, str]] = None,
     check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
 ) -> Tuple[threading.Thread, AlertManagerWatcher]:
     watcher = AlertManagerWatcher(
@@ -185,7 +181,7 @@ def watch_alertmanager_alerts(
         individual_alert_callback=individual_alert_callback,
         all_alert_callback=all_alert_callback,
         check_interval_s=check_interval_s,
-        extra_monitoring_labels=labels,
+        extra_monitoring_labels=extra_monitoring_labels,
     )
     thread = threading.Thread(target=watcher.watch, daemon=True)
     thread.start()
