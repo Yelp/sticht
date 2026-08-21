@@ -3,12 +3,14 @@ import threading
 import time
 from datetime import datetime
 from datetime import timezone
+from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
 
 from typing_extensions import Protocol
 
+import sticht.metrics as metrics
 from sticht.alertmanager import Alert
 from sticht.alertmanager import AlertmanagerClient
 
@@ -17,6 +19,7 @@ log = logging.getLogger(__name__)
 _DEFAULT_CHECK_INTERVAL_S = 30
 # XXX: should we maybe have this be passed down from paasta so that it's not hardcoded here?
 _DRY_RUN_LABEL = 'paasta_rollback_dry_run'
+METRICS_INTERFACE_BASE_NAME = 'sticht.alertmanager'
 
 
 def _parse_iso_timestamp(ts: str) -> float:
@@ -52,6 +55,8 @@ class AlertManagerWatcher:
         deploy_start_time: Unix timestamp; alerts firing before this time are treated as pre-existing and ignored
             (unless they recover mid-deploy).
         check_interval_s: how often (in seconds) to poll AlertManager for alerts
+        extra_monitoring_labels: optional dict of key-value pairs attached to metrics, enabling
+            deploy group or service grouping in monitoring dashboards.
     """
 
     def __init__(
@@ -60,6 +65,7 @@ class AlertManagerWatcher:
         filters: List[List[str]],
         individual_alert_callback: IndividualAlertCallback,
         all_alert_callback: AllAlertCallback,
+        extra_monitoring_labels: Optional[Dict[str, str]] = None,
         # XXX: our CEP also includes some tunables for how many polls alerts need to be firing/not-firing for
         # that we'll want to add here later
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
@@ -68,23 +74,40 @@ class AlertManagerWatcher:
         self.filters = filters
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
+        self.extra_monitoring_labels = extra_monitoring_labels if extra_monitoring_labels is not None else {}
         self.active_alerts: set[str] = set()
         self.active_dry_run_alerts: set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
-        self._client = AlertmanagerClient(alertmanager_url)
+        self._client = AlertmanagerClient(alertmanager_url, extra_monitoring_labels)
 
     def query(self) -> None:
-        all_alerts: List[Alert] = []
-        for filter_group in self.filters:
-            try:
-                all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
-            except Exception:
-                log.exception(
-                    f'Error fetching alerts from AlertManager for filter group {filter_group}, '
-                    f'continuing with remaining filter groups',
-                )
-        self.process_result(all_alerts)
+        with metrics.create_timer(
+            f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_poll_duration_ms',
+            default_dimensions=self.extra_monitoring_labels,
+        ):
+            all_alerts: List[Alert] = []
+            api_errors = 0
+            for filter_group in self.filters:
+                try:
+                    all_alerts.extend(self._client.fetch_alerts(filters=filter_group))
+                except Exception:
+                    api_errors += 1
+                    log.exception(
+                        f'Error fetching alerts from AlertManager for filter group {filter_group}, '
+                        f'continuing with remaining filter groups',
+                    )
+
+            metrics.create_counter(
+                f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
+                default_dimensions=self.extra_monitoring_labels,
+            ).count(api_errors)
+
+            self.process_result(all_alerts)
+            metrics.create_counter(
+                f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_alerts_checked',
+                default_dimensions=self.extra_monitoring_labels,
+            ).count(len(all_alerts))
 
     def process_result(
         self,
@@ -149,6 +172,7 @@ def watch_alertmanager_alerts(
     filters: List[List[str]],
     individual_alert_callback: IndividualAlertCallback,
     all_alert_callback: AllAlertCallback,
+    extra_monitoring_labels: Optional[Dict[str, str]] = None,
     check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
 ) -> Tuple[threading.Thread, AlertManagerWatcher]:
     watcher = AlertManagerWatcher(
@@ -157,6 +181,7 @@ def watch_alertmanager_alerts(
         individual_alert_callback=individual_alert_callback,
         all_alert_callback=all_alert_callback,
         check_interval_s=check_interval_s,
+        extra_monitoring_labels=extra_monitoring_labels,
     )
     thread = threading.Thread(target=watcher.watch, daemon=True)
     thread.start()
