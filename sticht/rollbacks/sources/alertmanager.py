@@ -98,12 +98,12 @@ class AlertManagerWatcher:
                         f'continuing with remaining filter groups',
                     )
 
+            self.process_result(all_alerts)
+
             metrics.create_counter(
                 f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
                 default_dimensions=self.extra_monitoring_labels,
             ).count(api_errors)
-
-            self.process_result(all_alerts)
             metrics.create_counter(
                 f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_alerts_checked',
                 default_dimensions=self.extra_monitoring_labels,
