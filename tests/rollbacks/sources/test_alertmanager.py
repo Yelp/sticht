@@ -68,6 +68,7 @@ def test_process_result_excludes_pre_deploy_alerts():
     individual_cb.assert_not_called()
     all_cb.assert_not_called()
     assert watcher.active_alerts == set()
+    assert watcher.preexisting_alert_names == {'OldAlert'}
 
     # alert with unparseable startsAt defaults to deploy_start_time (NOT excluded)
     watcher.process_result([{'labels': {'alertname': 'BadTimestamp'}, 'startsAt': 'garbage', 'fingerprint': 'bad'}])

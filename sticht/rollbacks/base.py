@@ -209,14 +209,25 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     def get_alertmanager_text(self, summary: bool) -> str:
         if self.alertmanager_watcher is not None:
             all_active = self.alertmanager_watcher.active_alerts
+            # an alertname can be both pre-existing and newly firing (e.g., for different labels) - if so, we only
+            # want to list it as firing
+            preexisting = self.alertmanager_watcher.preexisting_alert_names - all_active
+            components: List[str] = []
             if all_active:
-                components = [
+                components.extend([
                     Emoji(':alert:'),
                     f'{len(all_active)} AlertManager alert(s) firing:\n',
-                ]
+                ])
                 for alert_name in sorted(all_active):
                     components.append(f'{alert_name}\n')
-            else:
+            if preexisting:
+                components.extend([
+                    Emoji(':grimacing:'),
+                    f'{len(preexisting)} AlertManager alert(s) were firing before deploy, and will be ignored:\n',
+                ])
+                for alert_name in sorted(preexisting):
+                    components.append(f'{alert_name}\n')
+            if not components:
                 components = [
                     Emoji(':ok_hand:'),
                     'No AlertManager alerts firing.',
