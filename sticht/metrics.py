@@ -1,11 +1,13 @@
+from types import ModuleType
 from typing import Any
 from typing import Dict
 from typing import Optional
 
 try:
-    import yelp_meteorite as _meteorite
+    import yelp_meteorite
+    _meteorite: Optional[ModuleType] = yelp_meteorite
 except ImportError:
-    _meteorite = None  # type: ignore[assignment]
+    _meteorite = None
 
 
 class _NoopTimer:

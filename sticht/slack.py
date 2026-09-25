@@ -298,7 +298,7 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
                     self.machine.resolve_callable(
                         cond.func,
                         transitions.EventData(
-                            self.state, self, self.machine, self, args=(), kwargs={},
+                            self.state, self, self.machine, self, args=(), kwargs={},  # type: ignore[arg-type]
                         ),
                     )()
                     for transition in self.machine.get_transitions(
