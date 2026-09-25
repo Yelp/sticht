@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from typing import Dict
 from typing import List
+from typing import NamedTuple
 from typing import Optional
 from typing import Set
 from typing import Tuple
@@ -26,6 +27,11 @@ METRICS_INTERFACE_BASE_NAME = 'sticht.alertmanager'
 def _parse_iso_timestamp(ts: str) -> float:
     ts = ts.replace('Z', '+00:00')
     return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc).timestamp()
+
+
+class FiringAlert(NamedTuple):
+    alertname: str
+    dry_run: bool
 
 
 class IndividualAlertCallback(Protocol):
@@ -78,6 +84,10 @@ class AlertManagerWatcher:
         self.extra_monitoring_labels = extra_monitoring_labels if extra_monitoring_labels is not None else {}
         self.active_alerts: Set[str] = set()
         self.active_dry_run_alerts: Set[str] = set()
+        # the sets above are keyed by alertname (for display purposes), but we track state by fingerprint so that
+        # alerts that share an alertname (but have different labels) don't clobber each other
+        self.firing_alerts: Dict[str, FiringAlert] = {}
+        self.preexisting_alerts: Set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
         self._client = AlertmanagerClient(alertmanager_url)
@@ -119,12 +129,16 @@ class AlertManagerWatcher:
         self,
         alerts: List['Alert'],
     ) -> None:
-        # NOTE: this is just tracking alert names for now - we can store the whole payload if necessary later on
-        # ...but then we'll definitely need to change the set shenanigans below if we just swap things in-place here
-        alerts_seen: Set[str] = set()
-        dry_run_alerts_seen: Set[str] = set()
+        # multiple filter groups can return the same alert, so dedupe by fingerprint
+        seen = {alert['fingerprint']: alert for alert in alerts}
 
-        for alert in alerts:
+        for fingerprint, alert in seen.items():
+            # once we've classified an alert, stick with that until it resolves: AlertManager can report a
+            # different startsAt for an alert that's been continuously firing, so re-checking it every poll
+            # would have us flip-flop between treating it as pre-existing and newly firing
+            if fingerprint in self.preexisting_alerts or fingerprint in self.firing_alerts:
+                continue
+
             try:
                 starts_at = _parse_iso_timestamp(alert['startsAt'])
             except (KeyError, ValueError):
@@ -135,13 +149,22 @@ class AlertManagerWatcher:
 
             if starts_at < self.deploy_start_time:
                 # XXX: print message about excluded alert?
+                self.preexisting_alerts.add(fingerprint)
                 continue
 
-            alertname = alert['labels']['alertname']
-            if alert['labels'].get(_DRY_RUN_LABEL) == 'true':
-                dry_run_alerts_seen.add(alertname)
-            else:
-                alerts_seen.add(alertname)
+            self.firing_alerts[fingerprint] = FiringAlert(
+                alertname=alert['labels']['alertname'],
+                dry_run=alert['labels'].get(_DRY_RUN_LABEL) == 'true',
+            )
+
+        # anything we didn't see this time around has resolved - if it fires again, we'll treat it as a new failure
+        # (even if it was originally pre-existing)
+        self.preexisting_alerts &= set(seen)
+        for fingerprint in set(self.firing_alerts) - set(seen):
+            del self.firing_alerts[fingerprint]
+
+        alerts_seen = {a.alertname for a in self.firing_alerts.values() if not a.dry_run}
+        dry_run_alerts_seen = {a.alertname for a in self.firing_alerts.values() if a.dry_run}
 
         # notify about newly failing dry-run alerts (informational only)
         for alertname in dry_run_alerts_seen - self.active_dry_run_alerts:
