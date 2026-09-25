@@ -80,7 +80,7 @@ class AlertManagerWatcher:
         self.active_dry_run_alerts: Set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
-        self._client = AlertmanagerClient(alertmanager_url, extra_monitoring_labels)
+        self._client = AlertmanagerClient(alertmanager_url)
 
     def query(self) -> None:
         with metrics.create_timer(
