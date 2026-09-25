@@ -6,6 +6,7 @@ from datetime import timezone
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Set
 from typing import Tuple
 
 from typing_extensions import Protocol
@@ -75,11 +76,11 @@ class AlertManagerWatcher:
         self.check_interval_s = check_interval_s
         self.deploy_start_time = deploy_start_time if deploy_start_time is not None else time.time()
         self.extra_monitoring_labels = extra_monitoring_labels if extra_monitoring_labels is not None else {}
-        self.active_alerts: set[str] = set()
-        self.active_dry_run_alerts: set[str] = set()
+        self.active_alerts: Set[str] = set()
+        self.active_dry_run_alerts: Set[str] = set()
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
-        self._client = AlertmanagerClient(alertmanager_url, extra_monitoring_labels)
+        self._client = AlertmanagerClient(alertmanager_url)
 
     def query(self) -> None:
         with metrics.create_timer(
@@ -115,8 +116,8 @@ class AlertManagerWatcher:
     ) -> None:
         # NOTE: this is just tracking alert names for now - we can store the whole payload if necessary later on
         # ...but then we'll definitely need to change the set shenanigans below if we just swap things in-place here
-        alerts_seen: set[str] = set()
-        dry_run_alerts_seen: set[str] = set()
+        alerts_seen: Set[str] = set()
+        dry_run_alerts_seen: Set[str] = set()
 
         for alert in alerts:
             try:
@@ -138,21 +139,21 @@ class AlertManagerWatcher:
                 alerts_seen.add(alertname)
 
         # notify about newly failing dry-run alerts (informational only)
-        for alert in dry_run_alerts_seen - self.active_dry_run_alerts:
-            self.individual_alert_callback(alert, failing=True, dry_run=True)
-        for alert in self.active_dry_run_alerts - dry_run_alerts_seen:
-            self.individual_alert_callback(alert, failing=False, dry_run=True)
+        for alertname in dry_run_alerts_seen - self.active_dry_run_alerts:
+            self.individual_alert_callback(alertname, failing=True, dry_run=True)
+        for alertname in self.active_dry_run_alerts - dry_run_alerts_seen:
+            self.individual_alert_callback(alertname, failing=False, dry_run=True)
         self.active_dry_run_alerts = dry_run_alerts_seen
 
         # ping users about newly failing alerts
         new_alerts = alerts_seen - self.active_alerts
-        for alert in new_alerts:
-            self.individual_alert_callback(alert, failing=True)
+        for alertname in new_alerts:
+            self.individual_alert_callback(alertname, failing=True)
 
         # ...and then about alerts that have since recovered
         resolved_alerts = self.active_alerts - alerts_seen
-        for alert in resolved_alerts:
-            self.individual_alert_callback(alert, failing=False)
+        for alertname in resolved_alerts:
+            self.individual_alert_callback(alertname, failing=False)
 
         # ...and then potentially transition through the state machine if there's been any alert changes
         if self.active_alerts != alerts_seen:
