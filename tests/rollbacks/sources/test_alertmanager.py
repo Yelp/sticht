@@ -6,6 +6,7 @@ from sticht.alertmanager import AlertmanagerClient
 from sticht.rollbacks.sources.alertmanager import AlertManagerWatcher
 from sticht.rollbacks.sources.alertmanager import AllAlertCallback
 from sticht.rollbacks.sources.alertmanager import IndividualAlertCallback
+from sticht.rollbacks.sources.alertmanager import MISSED_POLLS_BEFORE_RESOLVED
 
 
 TEST_ALERTMANAGER_URL = 'http://alertmanager.example.com'
@@ -38,6 +39,11 @@ def _make_alert(alertname, starts_at_epoch, dry_run=False, fingerprint=None):
         'startsAt': _ts_iso(starts_at_epoch),
         'fingerprint': fingerprint or f'{alertname}-fingerprint',
     }
+
+
+def poll_until_resolved(watcher):
+    for _ in range(MISSED_POLLS_BEFORE_RESOLVED):
+        watcher.process_result([])
 
 
 def test_process_result_new_alerts():
@@ -76,7 +82,7 @@ def test_process_result_resolved_alerts():
     individual_cb.reset_mock()
     all_cb.reset_mock()
 
-    watcher.process_result([])
+    poll_until_resolved(watcher)
 
     individual_cb.assert_called_once_with('OldAlert', failing=False)
     all_cb.assert_called_once_with(failing=False)
@@ -131,7 +137,7 @@ def test_process_result_dry_run_alert_resolved():
     watcher.process_result([_make_alert('DryRunAlert', 1500.0, dry_run=True)])
     individual_cb.reset_mock()
 
-    watcher.process_result([])
+    poll_until_resolved(watcher)
 
     individual_cb.assert_called_once_with('DryRunAlert', failing=False, dry_run=True)
     all_cb.assert_not_called()
@@ -183,7 +189,7 @@ def test_process_result_preexisting_alert_that_recovers_and_refires_is_failing()
     watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
 
     watcher.process_result([_make_alert('OldAlert', 500.0)])
-    watcher.process_result([])
+    poll_until_resolved(watcher)
     watcher.process_result([_make_alert('OldAlert', 1500.0)])
 
     individual_cb.assert_called_once_with('OldAlert', failing=True)
@@ -205,3 +211,45 @@ def test_process_result_same_alertname_different_fingerprints():
     individual_cb.assert_called_once_with('HighErrors', failing=True)
     all_cb.assert_called_once_with(failing=True)
     assert watcher.active_alerts == {'HighErrors'}
+
+
+def test_process_result_alert_briefly_missing_is_not_resolved():
+    individual_cb = mock.Mock(spec=IndividualAlertCallback)
+    all_cb = mock.Mock(spec=AllAlertCallback)
+    watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
+    watcher.process_result([_make_alert('HighErrors', 1500.0)])
+    individual_cb.reset_mock()
+    all_cb.reset_mock()
+
+    # AlertManager can briefly drop a continuously-firing alert - that shouldn't count as a recovery
+    for _ in range(MISSED_POLLS_BEFORE_RESOLVED - 1):
+        watcher.process_result([])
+    watcher.process_result([_make_alert('HighErrors', 1500.0)])
+    for _ in range(MISSED_POLLS_BEFORE_RESOLVED - 1):
+        watcher.process_result([])
+
+    individual_cb.assert_not_called()
+    all_cb.assert_not_called()
+    assert watcher.active_alerts == {'HighErrors'}
+
+    watcher.process_result([])
+
+    individual_cb.assert_called_once_with('HighErrors', failing=False)
+    all_cb.assert_called_once_with(failing=False)
+    assert watcher.active_alerts == set()
+
+
+def test_process_result_preexisting_alert_briefly_missing_stays_preexisting():
+    individual_cb = mock.Mock(spec=IndividualAlertCallback)
+    all_cb = mock.Mock(spec=AllAlertCallback)
+    watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
+
+    # this is the flapping pattern we've seen in practice: the alert drops out of AlertManager for a poll and
+    # then comes back with a fresh startsAt
+    watcher.process_result([_make_alert('OldAlert', 500.0)])
+    watcher.process_result([])
+    watcher.process_result([_make_alert('OldAlert', 1500.0)])
+
+    individual_cb.assert_not_called()
+    all_cb.assert_not_called()
+    assert watcher.active_alerts == set()

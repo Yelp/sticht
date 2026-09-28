@@ -22,6 +22,11 @@ _DEFAULT_CHECK_INTERVAL_S = 30
 # XXX: should we maybe have this be passed down from paasta so that it's not hardcoded here?
 _DRY_RUN_LABEL = 'paasta_rollback_dry_run'
 METRICS_INTERFACE_BASE_NAME = 'sticht.alertmanager'
+# AlertManager can briefly drop an alert that's been continuously firing, so we require an
+# alert to be missing for several consecutive polls before treating it as resolved.
+# Otherwise, a single blip can cancel an in-progress auto-rollback.
+# TODO: make this tunable (e.g., passed down from PaaSTA) rather than hardcoded
+MISSED_POLLS_BEFORE_RESOLVED = 2
 
 
 def _parse_iso_timestamp(ts: str) -> float:
@@ -60,7 +65,8 @@ class AlertManagerWatcher:
             if so, the expectation is that this callback will potentially trigger a state machine transition towards
             the failing or recovered states (e.g., more or less like what the *_slo_callback functions do)
         deploy_start_time: Unix timestamp; alerts firing before this time are treated as pre-existing and ignored
-            (unless they recover mid-deploy).
+            (unless they recover mid-deploy - i.e., are missing for MISSED_POLLS_BEFORE_RESOLVED consecutive polls
+            - and then fire again).
         check_interval_s: how often (in seconds) to poll AlertManager for alerts
         extra_monitoring_labels: optional dict of key-value pairs attached to metrics, enabling
             deploy group or service grouping in monitoring dashboards.
@@ -74,7 +80,7 @@ class AlertManagerWatcher:
         all_alert_callback: AllAlertCallback,
         extra_monitoring_labels: Optional[Dict[str, str]] = None,
         # XXX: our CEP also includes some tunables for how many polls alerts need to be firing/not-firing for
-        # that we'll want to add here later
+        # that we'll want to add here later (see MISSED_POLLS_BEFORE_RESOLVED)
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
         deploy_start_time: Optional[float] = None,
     ) -> None:
@@ -88,6 +94,8 @@ class AlertManagerWatcher:
         # alerts that share an alertname (but have different labels) don't clobber each other
         self.firing_alerts: Dict[str, FiringAlert] = {}
         self.preexisting_alerts: Set[str] = set()
+        # number of consecutive polls that a tracked alert has been missing for
+        self.missed_polls: Dict[str, int] = {}
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
         self._client = AlertmanagerClient(alertmanager_url)
@@ -133,6 +141,8 @@ class AlertManagerWatcher:
         seen = {alert['fingerprint']: alert for alert in alerts}
 
         for fingerprint, alert in seen.items():
+            self.missed_polls.pop(fingerprint, None)
+
             # once we've classified an alert, stick with that until it resolves: AlertManager can report a
             # different startsAt for an alert that's been continuously firing, so re-checking it every poll
             # would have us flip-flop between treating it as pre-existing and newly firing
@@ -157,11 +167,14 @@ class AlertManagerWatcher:
                 dry_run=alert['labels'].get(_DRY_RUN_LABEL) == 'true',
             )
 
-        # anything we didn't see this time around has resolved - if it fires again, we'll treat it as a new failure
-        # (even if it was originally pre-existing)
-        self.preexisting_alerts &= set(seen)
-        for fingerprint in set(self.firing_alerts) - set(seen):
-            del self.firing_alerts[fingerprint]
+        for fingerprint in (self.preexisting_alerts | set(self.firing_alerts)) - set(seen):
+            self.missed_polls[fingerprint] = self.missed_polls.get(fingerprint, 0) + 1
+            if self.missed_polls[fingerprint] >= MISSED_POLLS_BEFORE_RESOLVED:
+                # this alert has actually resolved - if it fires again, we'll treat it as a new failure
+                # (even if it was originally pre-existing)
+                del self.missed_polls[fingerprint]
+                self.preexisting_alerts.discard(fingerprint)
+                self.firing_alerts.pop(fingerprint, None)
 
         alerts_seen = {a.alertname for a in self.firing_alerts.values() if not a.dry_run}
         dry_run_alerts_seen = {a.alertname for a in self.firing_alerts.values() if a.dry_run}
