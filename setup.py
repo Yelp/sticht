@@ -17,7 +17,7 @@ from setuptools import setup
 
 setup(
     name='sticht',
-    version='2.1.1',
+    version='2.1.2',
     classifiers=[
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.8',
