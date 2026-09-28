@@ -29,11 +29,15 @@ def _ts_iso(epoch):
     return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
 
 
-def _make_alert(alertname, starts_at_epoch, dry_run=False):
+def _make_alert(alertname, starts_at_epoch, dry_run=False, fingerprint=None):
     labels = {'alertname': alertname}
     if dry_run:
         labels['paasta_rollback_dry_run'] = 'true'
-    return {'labels': labels, 'startsAt': _ts_iso(starts_at_epoch)}
+    return {
+        'labels': labels,
+        'startsAt': _ts_iso(starts_at_epoch),
+        'fingerprint': fingerprint or f'{alertname}-fingerprint',
+    }
 
 
 def test_process_result_new_alerts():
@@ -60,7 +64,7 @@ def test_process_result_excludes_pre_deploy_alerts():
     assert watcher.active_alerts == set()
 
     # alert with unparseable startsAt defaults to deploy_start_time (NOT excluded)
-    watcher.process_result([{'labels': {'alertname': 'BadTimestamp'}, 'startsAt': 'garbage'}])
+    watcher.process_result([{'labels': {'alertname': 'BadTimestamp'}, 'startsAt': 'garbage', 'fingerprint': 'bad'}])
     individual_cb.assert_called_once_with('BadTimestamp', failing=True)
 
 
@@ -68,7 +72,9 @@ def test_process_result_resolved_alerts():
     individual_cb = mock.Mock(spec=IndividualAlertCallback)
     all_cb = mock.Mock(spec=AllAlertCallback)
     watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
-    watcher.active_alerts = {'OldAlert'}
+    watcher.process_result([_make_alert('OldAlert', 1500.0)])
+    individual_cb.reset_mock()
+    all_cb.reset_mock()
 
     watcher.process_result([])
 
@@ -122,7 +128,8 @@ def test_process_result_dry_run_alert_resolved():
     individual_cb = mock.Mock(spec=IndividualAlertCallback)
     all_cb = mock.Mock(spec=AllAlertCallback)
     watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
-    watcher.active_dry_run_alerts = {'DryRunAlert'}
+    watcher.process_result([_make_alert('DryRunAlert', 1500.0, dry_run=True)])
+    individual_cb.reset_mock()
 
     watcher.process_result([])
 
@@ -153,3 +160,48 @@ def test_query_skips_partial_results_on_api_error():
     individual_cb.assert_not_called()
     all_cb.assert_not_called()
     assert watcher.active_alerts == {'HighLatency', 'HighErrors'}
+
+
+def test_process_result_preexisting_alert_ignored_even_if_starts_at_changes():
+    individual_cb = mock.Mock(spec=IndividualAlertCallback)
+    all_cb = mock.Mock(spec=AllAlertCallback)
+    watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
+
+    # AlertManager can report a newer startsAt for an alert that's been firing the whole time
+    watcher.process_result([_make_alert('OldAlert', 500.0)])
+    watcher.process_result([_make_alert('OldAlert', 1500.0)])
+    watcher.process_result([_make_alert('OldAlert', 500.0)])
+
+    individual_cb.assert_not_called()
+    all_cb.assert_not_called()
+    assert watcher.active_alerts == set()
+
+
+def test_process_result_preexisting_alert_that_recovers_and_refires_is_failing():
+    individual_cb = mock.Mock(spec=IndividualAlertCallback)
+    all_cb = mock.Mock(spec=AllAlertCallback)
+    watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
+
+    watcher.process_result([_make_alert('OldAlert', 500.0)])
+    watcher.process_result([])
+    watcher.process_result([_make_alert('OldAlert', 1500.0)])
+
+    individual_cb.assert_called_once_with('OldAlert', failing=True)
+    all_cb.assert_called_once_with(failing=True)
+    assert watcher.active_alerts == {'OldAlert'}
+
+
+def test_process_result_same_alertname_different_fingerprints():
+    individual_cb = mock.Mock(spec=IndividualAlertCallback)
+    all_cb = mock.Mock(spec=AllAlertCallback)
+    watcher = _make_watcher(individual_alert_callback=individual_cb, all_alert_callback=all_cb)
+
+    # a pre-existing alert shouldn't mask a new one that happens to share its alertname
+    watcher.process_result([
+        _make_alert('HighErrors', 500.0, fingerprint='old'),
+        _make_alert('HighErrors', 1500.0, fingerprint='new'),
+    ])
+
+    individual_cb.assert_called_once_with('HighErrors', failing=True)
+    all_cb.assert_called_once_with(failing=True)
+    assert watcher.active_alerts == {'HighErrors'}
