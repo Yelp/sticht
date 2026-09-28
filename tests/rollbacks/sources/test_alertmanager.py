@@ -13,15 +13,15 @@ TEST_FILTERS = [['alertname=HighLatency', 'service=myapp']]
 TEST_DEPLOY_START_TIME = 1000.0
 
 
-def _make_watcher(individual_alert_callback=None, all_alert_callback=None):
+def _make_watcher(individual_alert_callback=None, all_alert_callback=None, filters=None):
     watcher = AlertManagerWatcher(
         alertmanager_url=TEST_ALERTMANAGER_URL,
-        filters=TEST_FILTERS,
+        filters=filters or TEST_FILTERS,
         individual_alert_callback=individual_alert_callback or mock.Mock(spec=IndividualAlertCallback),
         all_alert_callback=all_alert_callback or mock.Mock(spec=AllAlertCallback),
         deploy_start_time=TEST_DEPLOY_START_TIME,
     )
-    watcher._client = mock.Mock(spec=AlertmanagerClient)
+    watcher._client = mock.create_autospec(AlertmanagerClient, instance=True)
     return watcher
 
 
@@ -128,3 +128,28 @@ def test_process_result_dry_run_alert_resolved():
 
     individual_cb.assert_called_once_with('DryRunAlert', failing=False, dry_run=True)
     all_cb.assert_not_called()
+
+
+def test_query_skips_partial_results_on_api_error():
+    individual_cb = mock.Mock(spec=IndividualAlertCallback)
+    all_cb = mock.Mock(spec=AllAlertCallback)
+    watcher = _make_watcher(
+        individual_alert_callback=individual_cb,
+        all_alert_callback=all_cb,
+        filters=[['group=one'], ['group=two']],
+    )
+    watcher._client.fetch_alerts.side_effect = [
+        [_make_alert('HighLatency', 1500.0)],
+        [_make_alert('HighErrors', 1500.0)],
+    ]
+    watcher.query()
+    individual_cb.reset_mock()
+    all_cb.reset_mock()
+
+    # if a filter group fails, its alerts shouldn't be treated as resolved
+    watcher._client.fetch_alerts.side_effect = [[_make_alert('HighLatency', 1500.0)], Exception('oh no')]
+    watcher.query()
+
+    individual_cb.assert_not_called()
+    all_cb.assert_not_called()
+    assert watcher.active_alerts == {'HighLatency', 'HighErrors'}

@@ -99,7 +99,12 @@ class AlertManagerWatcher:
                         f'continuing with remaining filter groups',
                     )
 
-            self.process_result(all_alerts)
+            if api_errors:
+                # a partial result would make any alerts from the failed filter group(s) look resolved, so
+                # we'd rather keep our current state and try again next poll
+                log.warning(f'Skipping AlertManager poll result due to {api_errors} failed filter group(s)')
+            else:
+                self.process_result(all_alerts)
 
             metrics.create_counter(
                 f'{METRICS_INTERFACE_BASE_NAME}.alertmanager_api_errors',
