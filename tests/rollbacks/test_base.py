@@ -3,7 +3,9 @@ from unittest import mock
 import pytest
 
 from sticht.rollbacks.base import RollbackSlackDeploymentProcess
+from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.sources.alertmanager import AlertManagerWatcher
+from sticht.slack import SlackDeploymentProcess
 
 
 def _get_alertmanager_text(active_alerts, preexisting_alert_names):
@@ -40,3 +42,27 @@ def _get_alertmanager_text(active_alerts, preexisting_alert_names):
 )
 def test_get_alertmanager_text(active_alerts, preexisting_alert_names, expected):
     assert _get_alertmanager_text(active_alerts, preexisting_alert_names) == expected
+
+
+# NOTE: this test is kinda funky: it's really just here to serve as a regression test/warning
+# for the funky things we're doing here
+# ...which we should maybe consider not doing :p
+def test_init_does_not_clobber_watchers_started_by_subclass():
+    alertmanager_watcher = mock.Mock(spec=AlertManagerWatcher)
+    slo_watchers = [mock.Mock(spec=SLOWatcher)]
+
+    # HACK:  i don't really want to have to define all of the actual abstract methods for this regression test
+    # ...so let's just patch them out ;)
+    with mock.patch.object(RollbackSlackDeploymentProcess, '__abstractmethods__', frozenset()):
+        class MockRollbackProcess(RollbackSlackDeploymentProcess):
+            def __init__(self):
+                # like PaaSTA: start watchers *before* calling our superclass's constructor
+                self.slo_watchers = slo_watchers
+                self.alertmanager_watcher = alertmanager_watcher
+                super().__init__()
+
+    with mock.patch.object(SlackDeploymentProcess, '__init__', autospec=True, return_value=None):
+        process = MockRollbackProcess()
+
+    assert process.alertmanager_watcher is alertmanager_watcher
+    assert process.slo_watchers is slo_watchers

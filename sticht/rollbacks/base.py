@@ -13,18 +13,12 @@ from sticht.slack import SlackDeploymentProcess
 
 
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
-    def __init__(self) -> None:
-        self.slo_watchers: Optional[List[SLOWatcher]] = None
-        self.alertmanager_watcher: Optional[AlertManagerWatcher] = None
-        # normally you'd expect that this be called first thing in __init__,
-        # but the way this class is constructed means that one of the methods called
-        # by our superclass's constructor will throw when it tries to access the watcher
-        # lists defined above...thus this fun (which actually mirrors how we later construct
-        # a subclass of this class is PaaSTA!)
-        # NOTE: this does mean that some degree of care must be taken when subclassing this class
-        # as one could easily get into the same situation OR end up overwriting initializations done
-        # by the subclass upon calling this constructor
-        super().__init__()
+    # these are class-level defaults (rather than being assigned in __init__) since our superclass's
+    # constructor calls methods that access them - which means that subclasses (e.g., PaaSTA) need to
+    # start their watchers *before* calling our constructor, and assigning these in __init__ would
+    # then clobber those watchers
+    slo_watchers: Optional[List[SLOWatcher]] = None
+    alertmanager_watcher: Optional[AlertManagerWatcher] = None
 
     def get_extra_blocks_for_deployment(self):
         blocks = []
