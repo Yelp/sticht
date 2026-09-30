@@ -93,12 +93,17 @@ class AlertManagerWatcher:
         # the sets above are keyed by alertname (for display purposes), but we track state by fingerprint so that
         # alerts that share an alertname (but have different labels) don't clobber each other
         self.firing_alerts: Dict[str, FiringAlert] = {}
-        self.preexisting_alerts: Set[str] = set()
+        # fingerprint -> alertname
+        self.preexisting_alerts: Dict[str, str] = {}
         # number of consecutive polls that a tracked alert has been missing for
         self.missed_polls: Dict[str, int] = {}
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
         self._client = AlertmanagerClient(alertmanager_url)
+
+    @property
+    def preexisting_alert_names(self) -> Set[str]:
+        return set(self.preexisting_alerts.values())
 
     def query(self) -> None:
         with metrics.create_timer(
@@ -158,8 +163,7 @@ class AlertManagerWatcher:
                 )
 
             if starts_at < self.deploy_start_time:
-                # XXX: print message about excluded alert?
-                self.preexisting_alerts.add(fingerprint)
+                self.preexisting_alerts[fingerprint] = alert['labels']['alertname']
                 continue
 
             self.firing_alerts[fingerprint] = FiringAlert(
@@ -167,13 +171,13 @@ class AlertManagerWatcher:
                 dry_run=alert['labels'].get(_DRY_RUN_LABEL) == 'true',
             )
 
-        for fingerprint in (self.preexisting_alerts | set(self.firing_alerts)) - set(seen):
+        for fingerprint in (set(self.preexisting_alerts) | set(self.firing_alerts)) - set(seen):
             self.missed_polls[fingerprint] = self.missed_polls.get(fingerprint, 0) + 1
             if self.missed_polls[fingerprint] >= MISSED_POLLS_BEFORE_RESOLVED:
                 # this alert has actually resolved - if it fires again, we'll treat it as a new failure
                 # (even if it was originally pre-existing)
                 del self.missed_polls[fingerprint]
-                self.preexisting_alerts.discard(fingerprint)
+                self.preexisting_alerts.pop(fingerprint, None)
                 self.firing_alerts.pop(fingerprint, None)
 
         alerts_seen = {a.alertname for a in self.firing_alerts.values() if not a.dry_run}
