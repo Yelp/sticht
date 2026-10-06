@@ -66,3 +66,22 @@ def test_init_does_not_clobber_watchers_started_by_subclass():
 
     assert process.alertmanager_watcher is alertmanager_watcher
     assert process.slo_watchers is slo_watchers
+
+
+@pytest.mark.parametrize(
+    'alertmanager_rollbacks_enabled,auto_rollbacks_enabled,expected',
+    [
+        (False, True, False),
+        (True, False, True),
+    ],
+)
+def test_any_alertmanager_failing_is_independent_of_auto_rollbacks_enabled(
+    alertmanager_rollbacks_enabled, auto_rollbacks_enabled, expected,
+):
+    process = mock.Mock(
+        spec=RollbackSlackDeploymentProcess,
+        alertmanager_watcher=mock.Mock(spec=AlertManagerWatcher, active_alerts={'NewAlert'}),
+    )
+    process.alertmanager_rollbacks_enabled.return_value = alertmanager_rollbacks_enabled
+    process.auto_rollbacks_enabled.return_value = auto_rollbacks_enabled
+    assert RollbackSlackDeploymentProcess.any_alertmanager_failing(process) is expected
