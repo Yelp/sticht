@@ -141,6 +141,13 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     def get_auto_rollback_delay(self) -> float:
         raise NotImplementedError()
 
+    def alertmanager_rollbacks_enabled(self) -> bool:
+        """Whether AlertManager-based auto-rollbacks are enabled - this is independent of
+        auto_rollbacks_enabled() (which only controls SLO-based auto-rollbacks).
+
+        Defaults to disabled: subclasses must override this to opt in."""
+        return False
+
     def start_alertmanager_watcher_threads(
         self,
         alertmanager_url: str,
@@ -164,7 +171,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
 
     def any_alertmanager_failing(self) -> bool:
         return (
-            self.auto_rollbacks_enabled()
+            self.alertmanager_rollbacks_enabled()
             and self.alertmanager_watcher is not None
             and len(self.alertmanager_watcher.active_alerts) > 0
         )
