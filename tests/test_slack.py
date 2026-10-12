@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 from unittest import mock
 
 from slackclient import SlackClient
@@ -252,3 +253,30 @@ def test_is_relevant_event():
     assert slack.is_relevant_event(MIXED_EVENTS_STREAM[0]) is True
     # 2nd event should be ignored
     assert slack.is_relevant_event(MIXED_EVENTS_STREAM[1]) is False
+
+
+def test_restart_timer_keeps_trigger_verb_and_extra_text():
+    sdp = DummySlackDeploymentProcess()
+    with mock.patch.object(sdp, 'notify_users', autospec=True) as mock_notify_users, \
+            mock.patch.object(sdp, 'trigger', autospec=True) as mock_trigger:
+        sdp.start_timer(0.01, 'auto_certify', 'certify', extra_text='Click to cancel!')
+        sdp.event_loop.run_until_complete(asyncio.sleep(0))
+        # only look at what happens from the restart on: the first start_timer message is fine either way
+        mock_notify_users.reset_mock()
+        sdp.restart_timer()
+
+        async def wait_for_trigger():
+            while not mock_trigger.called:
+                await asyncio.sleep(0.01)
+
+        sdp.event_loop.run_until_complete(asyncio.wait_for(wait_for_trigger(), timeout=1))
+
+    # the restarted timer should fire the original trigger
+    assert mock_trigger.call_args_list == [mock.call('auto_certify')]
+
+    messages = [c.args[0] for c in mock_notify_users.call_args_list]
+    assert 'Countdown to certify cancelled.' in messages
+    assert any(
+        m.startswith('Will certify in 0.01 seconds') and 'Click to cancel!' in m
+        for m in messages
+    )

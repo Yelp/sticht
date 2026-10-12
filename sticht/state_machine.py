@@ -146,6 +146,7 @@ class DeploymentProcess(abc.ABC):
             )  # This allows cancel_timer to selectively cancel.
             self.timer_timeout = timeout  # saved for restart_timer
             self.timer_message_verb = message_verb  # saved for restart_timer
+            self.timer_extra_text = extra_text  # saved for restart_timer
 
         self.event_loop.call_soon_threadsafe(schedule_callback)
         self.timer_running = True
@@ -165,11 +166,13 @@ class DeploymentProcess(abc.ABC):
             self.timer_message_verb = None
 
     def restart_timer(self):
-        self.cancel_timer()
+        # start_timer cancels the current timer itself; cancelling it here first would clear the
+        # saved trigger/message_verb before we could pass them along.
         self.start_timer(
             timeout=self.timer_timeout,
             trigger=self.timer_trigger,
             message_verb=self.timer_message_verb,
+            extra_text=self.timer_extra_text,
         )
 
     def is_timer_running(self) -> bool:
