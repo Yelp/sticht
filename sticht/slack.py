@@ -15,6 +15,7 @@ import abc
 import asyncio
 import json
 import logging
+import socket
 import traceback
 from typing import List
 from typing import Optional
@@ -42,6 +43,14 @@ SCRIBE_ENV = {
     'superregion': None,
     'ecosystem': None,
 }
+# The hosts we connect to in order to read forwarded Slack messages are behind an AWS NLB - which have an idle timeout.
+# Since we never send any data to the scribe hosts and messages are only added to the scribe stream whenever someone
+# clicks a button (which is rare), we will generally always silently hit the idle timeout on the NLB and never notice.
+# With these values, a TCP keepalive probe is sent after 60s of idleness and every 30s after that while unanswered - so
+# a dead connection is detected (and we reconnect) after ~60 + 30 * 3 = 150s.
+TCP_KEEPALIVE_IDLE_S = 60
+TCP_KEEPALIVE_RETRY_INTERVAL_S = 30
+TCP_KEEPALIVE_MAX_FAILED_PROBES = 3
 log = logging.getLogger(__name__)
 
 
@@ -104,6 +113,13 @@ def is_relevant_event(event):
     return False
 
 
+def enable_tcp_keepalive(sock) -> None:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, TCP_KEEPALIVE_IDLE_S)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, TCP_KEEPALIVE_RETRY_INTERVAL_S)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, TCP_KEEPALIVE_MAX_FAILED_PROBES)
+
+
 async def get_slack_events():
     if scribereader is None:
         logging.error('Scribereader unavailable. Not tailing slack events.')
@@ -116,6 +132,7 @@ async def get_slack_events():
 
     while True:
         reader, writer = await asyncio.open_connection(host=host, port=port)
+        enable_tcp_keepalive(writer.get_extra_info('socket'))
         writer.write(construct_conn_msg(stream=SLACK_WEBHOOK_STREAM).encode('utf-8'))
         await writer.drain()
 
