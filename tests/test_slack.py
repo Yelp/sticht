@@ -287,11 +287,9 @@ def test_timers_are_tracked_per_trigger():
     with mock.patch.object(sdp, 'notify_users', autospec=True), \
             mock.patch.object(sdp, 'trigger', autospec=True) as mock_trigger:
         sdp.start_timer(0.01, 'rollback_slo_failure', 'automatically roll back')
-        sdp.event_loop.run_until_complete(asyncio.sleep(0))
         # starting a timer with a different trigger must not orphan the first one...
         sdp.start_timer(0.02, 'auto_certify', 'certify')
-        sdp.event_loop.run_until_complete(asyncio.sleep(0))
-        # ...so that it can still be cancelled
+        # ...so that it can still be cancelled - even before the event loop has gotten around to scheduling it
         sdp.cancel_timer(trigger='rollback_slo_failure')
         assert sdp.is_timer_running('auto_certify')
 

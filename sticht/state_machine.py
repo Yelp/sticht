@@ -151,6 +151,10 @@ class DeploymentProcess(abc.ABC):
         other triggers alone."""
         self.cancel_timer(trigger=trigger)
         timer = Timer(timeout=timeout, message_verb=message_verb, extra_text=extra_text)
+        # record the timer right away (rather than once it's scheduled) so that a cancel_timer() from another thread
+        # that runs before schedule_callback does still does the right thing
+        with self.timers_lock:
+            self.timers[trigger] = timer
         timer_start = time.time()
         timer_end = timer_start + timeout
         formatted_time = datetime.datetime.fromtimestamp(timer_end).strftime('%X')
@@ -171,8 +175,10 @@ class DeploymentProcess(abc.ABC):
             """Unfortunately, call_at is not threadsafe, and there's no call_at_threadsafe, so we need to schedule the
             call to call_at with call_soon_threadsafe."""
             with self.timers_lock:
-                timer.handle = self.event_loop.call_later(timeout, times_up)
-                self.timers[trigger] = timer
+                # this runs some time after start_timer() returned, and in the meantime this timer may have been
+                # cancelled or replaced by a newer timer for the same trigger - in both cases, don't schedule it
+                if self.timers.get(trigger) is timer:
+                    timer.handle = self.event_loop.call_later(timeout, times_up)
 
         self.event_loop.call_soon_threadsafe(schedule_callback)
 
