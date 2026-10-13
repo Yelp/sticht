@@ -280,3 +280,22 @@ def test_restart_timer_keeps_trigger_verb_and_extra_text():
         m.startswith('Will certify in 0.01 seconds') and 'Click to cancel!' in m
         for m in messages
     )
+
+
+def test_timers_are_tracked_per_trigger():
+    sdp = DummySlackDeploymentProcess()
+    with mock.patch.object(sdp, 'notify_users', autospec=True), \
+            mock.patch.object(sdp, 'trigger', autospec=True) as mock_trigger:
+        sdp.start_timer(0.01, 'rollback_slo_failure', 'automatically roll back')
+        sdp.event_loop.run_until_complete(asyncio.sleep(0))
+        # starting a timer with a different trigger must not orphan the first one...
+        sdp.start_timer(0.02, 'auto_certify', 'certify')
+        sdp.event_loop.run_until_complete(asyncio.sleep(0))
+        # ...so that it can still be cancelled
+        sdp.cancel_timer(trigger='rollback_slo_failure')
+        assert sdp.is_timer_running('auto_certify')
+
+        sdp.event_loop.run_until_complete(asyncio.sleep(0.05))
+
+    assert mock_trigger.call_args_list == [mock.call('auto_certify')]
+    assert not sdp.is_timer_running()
