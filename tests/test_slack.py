@@ -255,31 +255,34 @@ def test_is_relevant_event():
     assert slack.is_relevant_event(MIXED_EVENTS_STREAM[1]) is False
 
 
-def test_restart_timer_keeps_trigger_verb_and_extra_text():
+def test_restart_timer_restarts_every_running_timer():
     sdp = DummySlackDeploymentProcess()
     with mock.patch.object(sdp, 'notify_users', autospec=True) as mock_notify_users, \
             mock.patch.object(sdp, 'trigger', autospec=True) as mock_trigger:
-        sdp.start_timer(0.01, 'auto_certify', 'certify', extra_text='Click to cancel!')
+        sdp.start_timer(0.01, 'rollback_slo_failure', 'automatically roll back', extra_text='Click to cancel!')
+        sdp.start_timer(0.01, 'rollback_alertmanager_failure', 'automatically roll back')
         sdp.event_loop.run_until_complete(asyncio.sleep(0))
-        # only look at what happens from the restart on: the first start_timer message is fine either way
+        # only look at what happens from the restart on: the first start_timer messages are fine either way
         mock_notify_users.reset_mock()
         sdp.restart_timer()
 
-        async def wait_for_trigger():
-            while not mock_trigger.called:
+        async def wait_for_triggers():
+            while len(mock_trigger.call_args_list) < 2:
                 await asyncio.sleep(0.01)
 
-        sdp.event_loop.run_until_complete(asyncio.wait_for(wait_for_trigger(), timeout=1))
+        sdp.event_loop.run_until_complete(asyncio.wait_for(wait_for_triggers(), timeout=1))
 
-    # the restarted timer should fire the original trigger
-    assert mock_trigger.call_args_list == [mock.call('auto_certify')]
+    # each restarted timer should fire its original trigger, once
+    assert sorted(c.args[0] for c in mock_trigger.call_args_list) == [
+        'rollback_alertmanager_failure', 'rollback_slo_failure',
+    ]
 
-    messages = [c.args[0] for c in mock_notify_users.call_args_list]
-    assert 'Countdown to certify cancelled.' in messages
-    assert any(
-        m.startswith('Will certify in 0.01 seconds') and 'Click to cancel!' in m
-        for m in messages
-    )
+    # each restart is announced as a single message (rather than a cancel + new countdown), keeping its extra text
+    reset_messages = [
+        c.args[0] for c in mock_notify_users.call_args_list if not c.args[0].startswith("Time's up")
+    ]
+    assert len(reset_messages) == 2
+    assert any('Click to cancel!' in m for m in reset_messages)
 
 
 def test_timers_are_tracked_per_trigger():

@@ -67,6 +67,11 @@ class Timer:
         self.handle: Optional[asyncio.TimerHandle] = None
 
 
+def format_timer_end(timeout: float) -> str:
+    """The wall-clock time at which a timer started now with this timeout will fire."""
+    return datetime.datetime.fromtimestamp(time.time() + timeout).strftime('%X')
+
+
 class DeploymentProcess(abc.ABC):
     if TYPE_CHECKING:
         # These attributes need to be defined in this `if TYPE_CHECKING` block, because if they exist at runtime then
@@ -155,30 +160,30 @@ class DeploymentProcess(abc.ABC):
         # that runs before schedule_callback does still does the right thing
         with self.timers_lock:
             self.timers[trigger] = timer
-        timer_start = time.time()
-        timer_end = timer_start + timeout
-        formatted_time = datetime.datetime.fromtimestamp(timer_end).strftime('%X')
+        self.schedule_timer(trigger, timer)
         self.notify_users(
-            f'Will {message_verb} in {timeout} seconds, (at {formatted_time})! {extra_text}',
+            f'Will {message_verb} in {timeout} seconds, (at {format_timer_end(timeout)})! {extra_text}',
         )
 
-        def times_up():
+    def schedule_timer(self, trigger: str, timer: Timer) -> None:
+        """Schedule a timer that's already been recorded in self.timers to fire on the event loop."""
+        def times_up() -> None:
             with self.timers_lock:
                 if self.timers.get(trigger) is not timer:
                     # this timer was cancelled or replaced after it was scheduled
                     return
                 del self.timers[trigger]
-            self.notify_users(f"Time's up, will now {message_verb}.")
+            self.notify_users(f"Time's up, will now {timer.message_verb}.")
             self.trigger(trigger)
 
-        def schedule_callback():
+        def schedule_callback() -> None:
             """Unfortunately, call_at is not threadsafe, and there's no call_at_threadsafe, so we need to schedule the
             call to call_at with call_soon_threadsafe."""
             with self.timers_lock:
                 # this runs some time after start_timer() returned, and in the meantime this timer may have been
                 # cancelled or replaced by a newer timer for the same trigger - in both cases, don't schedule it
                 if self.timers.get(trigger) is timer:
-                    timer.handle = self.event_loop.call_later(timeout, times_up)
+                    timer.handle = self.event_loop.call_later(timer.timeout, times_up)
 
         self.event_loop.call_soon_threadsafe(schedule_callback)
 
@@ -201,16 +206,34 @@ class DeploymentProcess(abc.ABC):
             self.notify_users(f'Countdown to {timer.message_verb} cancelled.')
         return len(cancelled) > 0
 
-    def restart_timer(self) -> None:
-        """Restart every running timer from the beginning of its countdown."""
+    def restart_timer(self, trigger: Optional[str] = None) -> None:
+        """Restart the running timer for `trigger` (or every running timer if no trigger is given) from the beginning
+        of its countdown."""
         with self.timers_lock:
-            running = list(self.timers.items())
-        for trigger, timer in running:
-            self.start_timer(
-                timeout=timer.timeout,
-                trigger=trigger,
-                message_verb=timer.message_verb,
-                extra_text=timer.extra_text,
+            if trigger is None:
+                running = list(self.timers.items())
+            elif trigger in self.timers:
+                running = [(trigger, self.timers[trigger])]
+            else:
+                running = []
+
+        for running_trigger, old_timer in running:
+            timer = Timer(
+                timeout=old_timer.timeout,
+                message_verb=old_timer.message_verb,
+                extra_text=old_timer.extra_text,
+            )
+            with self.timers_lock:
+                if self.timers.get(running_trigger) is not old_timer:
+                    # cancelled or replaced while we were restarting other timers: leave it alone
+                    continue
+                if old_timer.handle is not None:
+                    old_timer.handle.cancel()
+                self.timers[running_trigger] = timer
+            self.schedule_timer(running_trigger, timer)
+            self.notify_users(
+                f'Countdown to {timer.message_verb} reset: will {timer.message_verb} in {timer.timeout} seconds '
+                f'(at {format_timer_end(timer.timeout)}). {timer.extra_text}',
             )
 
     def is_timer_running(self, trigger: Optional[str] = None) -> bool:
