@@ -1,5 +1,6 @@
 import abc
 from typing import Dict
+from typing import FrozenSet
 from typing import List
 from typing import Optional
 
@@ -19,6 +20,11 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
     # then clobber those watchers
     slo_watchers: Optional[List[SLOWatcher]] = None
     alertmanager_watcher: Optional[AlertManagerWatcher] = None
+    # triggers of timers started via start_auto_rollback_countdown(), so we can tell rollback countdowns apart from
+    # other timers (e.g., auto-certify).
+    # it's a class-level default (like the watchers above), so it's immutable: we only update it by reassignment
+    # (under timers_lock), which gives each instance (e.g., srv-configs-tools runs one per branch) its own copy.
+    auto_rollback_countdown_triggers: FrozenSet[str] = frozenset()
 
     def get_extra_blocks_for_deployment(self):
         blocks = []
@@ -243,13 +249,34 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 return ' '.join(components)
         return ''
 
-    def start_auto_rollback_countdown(self, trigger: str, extra_text: str) -> None:
+    def start_auto_rollback_countdown(self, trigger: str, extra_text: str, reason: str = '') -> None:
+        """Start a countdown to roll back via `trigger`. If given, `reason` is included in the countdown messages so
+        that users can tell overlapping countdowns apart."""
+        message_verb = f'automatically roll back ({reason})' if reason else 'automatically roll back'
+        with self.timers_lock:
+            self.auto_rollback_countdown_triggers = self.auto_rollback_countdown_triggers | {trigger}
         self.start_timer(
             timeout=self.get_auto_rollback_delay(),
             trigger=trigger,
-            message_verb='automatically roll back',
+            message_verb=message_verb,
             extra_text=extra_text,
         )
 
-    def cancel_auto_rollback_countdown(self, trigger: str) -> None:
-        self.cancel_timer(trigger=trigger)
+    def cancel_auto_rollback_countdown(self, trigger: Optional[str] = None) -> bool:
+        """Cancel the rollback countdown for `trigger`, or every rollback countdown if no trigger is given. Other
+        timers (e.g., auto-certify) are left alone.
+
+        Pass a trigger when a single condition recovers (other conditions may still be failing). Omit it to stop every
+        pending automatic rollback, e.g. when auto rollbacks are disabled or a rollback is already starting.
+
+        Returns whether any countdown was cancelled."""
+        if trigger is not None:
+            return self.cancel_timer(trigger=trigger)
+        with self.timers_lock:
+            triggers = self.auto_rollback_countdown_triggers
+        cancelled = [self.cancel_timer(trigger=t) for t in triggers]
+        return any(cancelled)
+
+    def is_auto_rollback_countdown_running(self) -> bool:
+        with self.timers_lock:
+            return any(t in self.timers for t in self.auto_rollback_countdown_triggers)
