@@ -58,6 +58,22 @@ def test_process_result_new_alerts():
     assert watcher.active_alerts == {'HighLatency'}
 
 
+def test_process_result_updates_active_alerts_before_callbacks():
+    # NOTE: each callback records what active_alerts looks like at the moment it runs - i.e., what another
+    # thread would see if it checked mid-callback.
+    # This is a regression test: previously, both recordings would be empty sets since we updated
+    # active_alerts *after* calling the callbacks (which could lead to a fun race condition).
+    active_alerts_during_callbacks = []
+    watcher = _make_watcher(
+        individual_alert_callback=lambda *args, **kwargs: active_alerts_during_callbacks.append(watcher.active_alerts),
+        all_alert_callback=lambda **kwargs: active_alerts_during_callbacks.append(watcher.active_alerts),
+    )
+
+    watcher.process_result([_make_alert('HighLatency', 1500.0)])
+
+    assert active_alerts_during_callbacks == [{'HighLatency'}, {'HighLatency'}]
+
+
 def test_process_result_excludes_pre_deploy_alerts():
     individual_cb = mock.Mock(spec=IndividualAlertCallback)
     all_cb = mock.Mock(spec=AllAlertCallback)

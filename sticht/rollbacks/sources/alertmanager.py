@@ -183,29 +183,32 @@ class AlertManagerWatcher:
         alerts_seen = {a.alertname for a in self.firing_alerts.values() if not a.dry_run}
         dry_run_alerts_seen = {a.alertname for a in self.firing_alerts.values() if a.dry_run}
 
-        # notify about newly failing dry-run alerts (informational only)
-        for alertname in dry_run_alerts_seen - self.active_dry_run_alerts:
-            self.individual_alert_callback(alertname, failing=True, dry_run=True)
-        for alertname in self.active_dry_run_alerts - dry_run_alerts_seen:
-            self.individual_alert_callback(alertname, failing=False, dry_run=True)
+        # store the current alerts before running any callbacks: other threads (e.g., the deploy state machine
+        # deciding whether to start the auto-certify timer) read active_alerts, and the callbacks can be slow
+        previous_dry_run_alerts = self.active_dry_run_alerts
+        previous_alerts = self.active_alerts
         self.active_dry_run_alerts = dry_run_alerts_seen
+        self.active_alerts = alerts_seen
+
+        # notify about newly failing dry-run alerts (informational only)
+        for alertname in dry_run_alerts_seen - previous_dry_run_alerts:
+            self.individual_alert_callback(alertname, failing=True, dry_run=True)
+        for alertname in previous_dry_run_alerts - dry_run_alerts_seen:
+            self.individual_alert_callback(alertname, failing=False, dry_run=True)
 
         # ping users about newly failing alerts
-        new_alerts = alerts_seen - self.active_alerts
+        new_alerts = alerts_seen - previous_alerts
         for alertname in new_alerts:
             self.individual_alert_callback(alertname, failing=True)
 
         # ...and then about alerts that have since recovered
-        resolved_alerts = self.active_alerts - alerts_seen
+        resolved_alerts = previous_alerts - alerts_seen
         for alertname in resolved_alerts:
             self.individual_alert_callback(alertname, failing=False)
 
         # ...and then potentially transition through the state machine if there's been any alert changes
-        if self.active_alerts != alerts_seen:
+        if previous_alerts != alerts_seen:
             self.all_alert_callback(failing=len(alerts_seen) > 0)
-
-        # ...and then finally: store the current alerts for the next iteration to compare to
-        self.active_alerts = alerts_seen
 
     def watch(self) -> None:
         while True:
