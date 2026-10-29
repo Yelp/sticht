@@ -20,7 +20,7 @@ setup(
     version='2.4.0',
     classifiers=[
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.10',
     ],
     install_requires=[
         'pytimeparse',
@@ -37,6 +37,7 @@ setup(
             'slo-transcoder>=3.2.3',
         ],
     },
+    python_requires='>=3.10',
     packages=find_packages(exclude=('tests*', 'testing*')),
     package_data={
         'sticht': ['py.typed'],
