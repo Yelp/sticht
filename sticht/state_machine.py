@@ -216,8 +216,11 @@ class DeploymentProcess(abc.ABC):
 
         self.event_loop.call_soon_threadsafe(schedule_callback)
 
-    def cancel_timer(self, trigger: Optional[str] = None) -> bool:
+    def cancel_timer(self, trigger: Optional[str] = None, quiet: bool = False) -> bool:
         """Cancel the running timer for `trigger`, or every running timer if no trigger is given.
+
+        Pass quiet=True to skip the "Countdown to ... cancelled." message, e.g. when the caller posts its own message
+        about what happens instead.
 
         Returns whether any timer was cancelled."""
         with self.timers_lock:
@@ -231,8 +234,9 @@ class DeploymentProcess(abc.ABC):
                 if timer.handle is not None:
                     timer.handle.cancel()
 
-        for timer in cancelled:
-            self.notify_users(f'Countdown to {timer.message_verb} cancelled{timer.cancelled_because()}.')
+        if not quiet:
+            for timer in cancelled:
+                self.notify_users(f'Countdown to {timer.message_verb} cancelled{timer.cancelled_because()}.')
         return len(cancelled) > 0
 
     def restart_timer(self, trigger: Optional[str] = None) -> None:
