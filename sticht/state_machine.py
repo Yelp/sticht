@@ -15,9 +15,11 @@ import abc
 import asyncio
 import datetime
 import logging
+import threading
 import time
 from typing import Callable
 from typing import Collection
+from typing import Dict
 from typing import Iterator
 from typing import List
 from typing import Mapping
@@ -47,6 +49,43 @@ class TransitionDefinition(TransitionDefinitionBase, total=False):
     before: Callable
 
 
+class Timer:
+    """Data about one countdown started by DeploymentProcess.start_timer() (e.g., "auto-certify in 600s").
+
+    DeploymentProcess stores these in self.timers, keyed by the trigger to run when the countdown ends, and does the
+    actual scheduling and triggering itself.
+
+    NOTE: Fields like message_verb, reason and extra_text exist so that we can have meaningful Slack messages
+    (including after restart_timer() recreates the countdown).
+    """
+
+    def __init__(
+        self, timeout: float, message_verb: str, extra_text: str, reason: str = '', cancelled_reason: str = '',
+    ) -> None:
+        self.timeout = timeout
+        self.message_verb = message_verb
+        self.extra_text = extra_text
+        # why this countdown was started (e.g., "an SLO is failing"), if there's anything more to say than the verb
+        self.reason = reason
+        # the same, but for once the countdown has been cancelled (e.g., "an SLO was failing")
+        self.cancelled_reason = cancelled_reason
+        # set once the countdown has been scheduled on the event loop
+        self.handle: Optional[asyncio.TimerHandle] = None
+
+    def because(self) -> str:
+        """The reason for this countdown, ready to be appended to a message (empty if there's no reason)."""
+        return f' because {self.reason}' if self.reason else ''
+
+    def cancelled_because(self) -> str:
+        """Like because(), but for a cancelled countdown (empty if there's no cancelled_reason)."""
+        return f' ({self.cancelled_reason})' if self.cancelled_reason else ''
+
+
+def format_timer_end(timeout: float) -> str:
+    """The wall-clock time at which a timer started now with this timeout will fire."""
+    return datetime.datetime.fromtimestamp(time.time() + timeout).strftime('%X')
+
+
 class DeploymentProcess(abc.ABC):
     if TYPE_CHECKING:
         # These attributes need to be defined in this `if TYPE_CHECKING` block, because if they exist at runtime then
@@ -60,11 +99,13 @@ class DeploymentProcess(abc.ABC):
         float
     ] = None  # in normal operation, this will be None, but this lets tests set a max time.
 
-    def __init__(self):
-
+    def __init__(self) -> None:
         self.event_loop = asyncio.get_event_loop()
         self.finished_event = asyncio.Event()
-        self.timer_running = False
+        # running timers, keyed by the trigger they'll run: timers are started and cancelled from several threads
+        # (watchers, Slack button handlers, the event loop itself), so all access goes through timers_lock
+        self.timers: Dict[str, Timer] = {}
+        self.timers_lock = threading.Lock()
 
         self.machine = transitions.extensions.LockedMachine(
             model=self,
@@ -122,67 +163,120 @@ class DeploymentProcess(abc.ABC):
         if self.state in self.status_code_by_state():
             self.event_loop.call_soon_threadsafe(self.finished_event.set)
 
-    def start_timer(self, timeout, trigger, message_verb, extra_text=''):
+    def start_timer(
+        self,
+        timeout: float,
+        trigger: str,
+        message_verb: str,
+        extra_text: str = '',
+        reason: str = '',
+        cancelled_reason: str = '',
+    ) -> None:
+        """Start a countdown that runs `trigger` after `timeout` seconds.
+
+        Timers are tracked per trigger: this replaces any running timer with the same trigger, but leaves timers with
+        other triggers alone."""
         self.cancel_timer(trigger=trigger)
-        timer_start = time.time()
-        timer_end = timer_start + timeout
-        formatted_time = datetime.datetime.fromtimestamp(timer_end).strftime('%X')
+        timer = Timer(
+            timeout=timeout,
+            message_verb=message_verb,
+            extra_text=extra_text,
+            reason=reason,
+            cancelled_reason=cancelled_reason,
+        )
+        # record the timer right away (rather than once it's scheduled) so that a cancel_timer() from another thread
+        # that runs before schedule_callback does still does the right thing
+        with self.timers_lock:
+            self.timers[trigger] = timer
+        self.schedule_timer(trigger, timer)
         self.notify_users(
-            f'Will {message_verb} in {timeout} seconds, (at {formatted_time})! {extra_text}',
+            f'Will {message_verb} in {timeout} seconds (at {format_timer_end(timeout)}){timer.because()}! '
+            f'{extra_text}',
         )
 
-        def times_up():
-            self.notify_users(f"Time's up, will now {message_verb}.")
+    def schedule_timer(self, trigger: str, timer: Timer) -> None:
+        """Schedule a timer that's already been recorded in self.timers to fire on the event loop."""
+        def times_up() -> None:
+            with self.timers_lock:
+                if self.timers.get(trigger) is not timer:
+                    # this timer was cancelled or replaced after it was scheduled
+                    return
+                del self.timers[trigger]
+            self.notify_users(f"Time's up, will now {timer.message_verb}{timer.because()}.")
             self.trigger(trigger)
-            self.timer_handle = None
-            self.timer_running = False
 
-        def schedule_callback():
+        def schedule_callback() -> None:
             """Unfortunately, call_at is not threadsafe, and there's no call_at_threadsafe, so we need to schedule the
             call to call_at with call_soon_threadsafe."""
-            self.timer_handle = self.event_loop.call_later(timeout, times_up)
-            self.timer_trigger = (
-                trigger
-            )  # This allows cancel_timer to selectively cancel.
-            self.timer_timeout = timeout  # saved for restart_timer
-            self.timer_message_verb = message_verb  # saved for restart_timer
-            self.timer_extra_text = extra_text  # saved for restart_timer
+            with self.timers_lock:
+                # this runs some time after start_timer() returned, and in the meantime this timer may have been
+                # cancelled or replaced by a newer timer for the same trigger - in both cases, don't schedule it
+                if self.timers.get(trigger) is timer:
+                    timer.handle = self.event_loop.call_later(timer.timeout, times_up)
 
         self.event_loop.call_soon_threadsafe(schedule_callback)
-        self.timer_running = True
 
-    def cancel_timer(self, trigger=None):
-        """Cancel the running timer. If trigger is specified, only cancel the timer if its trigger matches."""
-        handle = self.get_timer_handle()
-        if handle is None:
-            self.timer_running = False
-            return
-        if trigger is None or trigger == self.timer_trigger:
-            self.notify_users(f'Countdown to {self.timer_message_verb} cancelled.')
-            handle.cancel()
-            self.timer_handle = None
-            self.timer_running = False
-            self.timer_trigger = None
-            self.timer_message_verb = None
+    def cancel_timer(self, trigger: Optional[str] = None, quiet: bool = False) -> bool:
+        """Cancel the running timer for `trigger`, or every running timer if no trigger is given.
 
-    def restart_timer(self):
-        # start_timer cancels the current timer itself; cancelling it here first would clear the
-        # saved trigger/message_verb before we could pass them along.
-        self.start_timer(
-            timeout=self.timer_timeout,
-            trigger=self.timer_trigger,
-            message_verb=self.timer_message_verb,
-            extra_text=self.timer_extra_text,
-        )
+        Pass quiet=True to skip the "Countdown to ... cancelled." message, e.g. when the caller posts its own message
+        about what happens instead.
 
-    def is_timer_running(self) -> bool:
-        return self.timer_running
+        Returns whether any timer was cancelled."""
+        with self.timers_lock:
+            if trigger is None:
+                cancelled = list(self.timers.values())
+                self.timers.clear()
+            else:
+                timer = self.timers.pop(trigger, None)
+                cancelled = [] if timer is None else [timer]
+            for timer in cancelled:
+                if timer.handle is not None:
+                    timer.handle.cancel()
 
-    def get_timer_handle(self):
-        try:
-            return self.timer_handle
-        except AttributeError:
-            return None
+        if not quiet:
+            for timer in cancelled:
+                self.notify_users(f'Countdown to {timer.message_verb} cancelled{timer.cancelled_because()}.')
+        return len(cancelled) > 0
+
+    def restart_timer(self, trigger: Optional[str] = None) -> None:
+        """Restart the running timer for `trigger` (or every running timer if no trigger is given) from the beginning
+        of its countdown."""
+        with self.timers_lock:
+            if trigger is None:
+                running = list(self.timers.items())
+            elif trigger in self.timers:
+                running = [(trigger, self.timers[trigger])]
+            else:
+                running = []
+
+        for running_trigger, old_timer in running:
+            timer = Timer(
+                timeout=old_timer.timeout,
+                message_verb=old_timer.message_verb,
+                extra_text=old_timer.extra_text,
+                reason=old_timer.reason,
+                cancelled_reason=old_timer.cancelled_reason,
+            )
+            with self.timers_lock:
+                if self.timers.get(running_trigger) is not old_timer:
+                    # cancelled or replaced while we were restarting other timers: leave it alone
+                    continue
+                if old_timer.handle is not None:
+                    old_timer.handle.cancel()
+                self.timers[running_trigger] = timer
+            self.schedule_timer(running_trigger, timer)
+            self.notify_users(
+                f'Countdown reset: will {timer.message_verb} in {timer.timeout} seconds '
+                f'(at {format_timer_end(timer.timeout)}){timer.because()}. {timer.extra_text}',
+            )
+
+    def is_timer_running(self, trigger: Optional[str] = None) -> bool:
+        """Whether the timer for `trigger` is running, or whether any timer is running if no trigger is given."""
+        with self.timers_lock:
+            if trigger is None:
+                return len(self.timers) > 0
+            return trigger in self.timers
 
     def before_state_change(self):
         pass
