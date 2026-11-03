@@ -249,17 +249,21 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 return ' '.join(components)
         return ''
 
-    def start_auto_rollback_countdown(self, trigger: str, extra_text: str, reason: str = '') -> None:
-        """Start a countdown to roll back via `trigger`. If given, `reason` is included in the countdown messages so
-        that users can tell overlapping countdowns apart."""
-        message_verb = f'automatically roll back ({reason})' if reason else 'automatically roll back'
+    def start_auto_rollback_countdown(
+        self, trigger: str, extra_text: str, reason: str = '', cancelled_reason: str = '',
+    ) -> None:
+        """Start a countdown to roll back via `trigger`. If given, `reason` (e.g., "an SLO is failing") is included in
+        the countdown messages - and `cancelled_reason` (e.g., "an SLO was failing") in the message for when it's
+        cancelled - so that users can tell overlapping countdowns apart."""
         with self.timers_lock:
             self.auto_rollback_countdown_triggers = self.auto_rollback_countdown_triggers | {trigger}
         self.start_timer(
             timeout=self.get_auto_rollback_delay(),
             trigger=trigger,
-            message_verb=message_verb,
+            message_verb='automatically roll back',
             extra_text=extra_text,
+            reason=reason,
+            cancelled_reason=cancelled_reason,
         )
 
     def cancel_auto_rollback_countdown(self, trigger: Optional[str] = None) -> bool:
