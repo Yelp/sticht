@@ -1,3 +1,4 @@
+import asyncio
 from unittest import mock
 
 import pytest
@@ -6,6 +7,7 @@ from sticht.rollbacks.base import RollbackSlackDeploymentProcess
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.sources.alertmanager import AlertManagerWatcher
 from sticht.slack import SlackDeploymentProcess
+from tests.test_slack import DummySlackDeploymentProcess
 
 
 def _get_alertmanager_text(active_alerts, preexisting_alert_names):
@@ -85,3 +87,33 @@ def test_any_alertmanager_failing_is_independent_of_auto_rollbacks_enabled(
     process.alertmanager_rollbacks_enabled.return_value = alertmanager_rollbacks_enabled
     process.auto_rollbacks_enabled.return_value = auto_rollbacks_enabled
     assert RollbackSlackDeploymentProcess.any_alertmanager_failing(process) is expected
+
+
+class DummyRollbackSlackDeploymentProcess(RollbackSlackDeploymentProcess, DummySlackDeploymentProcess):
+    def get_signalfx_api_token(self):
+        return 'token'
+
+    def auto_rollbacks_enabled(self):
+        return True
+
+    def get_auto_rollback_delay(self):
+        return 0.01
+
+
+def test_cancel_auto_rollback_countdown_only_cancels_rollback_countdowns():
+    process = DummyRollbackSlackDeploymentProcess()
+    with mock.patch.object(process, 'notify_users', autospec=True), \
+            mock.patch.object(process, 'trigger', autospec=True) as mock_trigger:
+        process.start_auto_rollback_countdown('rollback_slo_failure', extra_text='')
+        process.start_auto_rollback_countdown('rollback_alertmanager_failure', extra_text='')
+        process.start_timer(0.02, 'auto_certify', 'certify')
+
+        # one condition recovering only cancels its own countdown...
+        assert process.cancel_auto_rollback_countdown('rollback_slo_failure')
+        # ...so the other one is still there to be cancelled along with every other rollback countdown
+        assert process.cancel_auto_rollback_countdown()
+
+        process.event_loop.run_until_complete(asyncio.sleep(0.05))
+
+    # ...while non-rollback timers are left alone
+    assert mock_trigger.call_args_list == [mock.call('auto_certify')]
