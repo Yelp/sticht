@@ -266,19 +266,22 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             cancelled_reason=cancelled_reason,
         )
 
-    def cancel_auto_rollback_countdown(self, trigger: Optional[str] = None) -> bool:
+    def cancel_auto_rollback_countdown(self, trigger: Optional[str] = None, quiet: bool = False) -> bool:
         """Cancel the rollback countdown for `trigger`, or every rollback countdown if no trigger is given. Other
         timers (e.g., auto-certify) are left alone.
 
         Pass a trigger when a single condition recovers (other conditions may still be failing). Omit it to stop every
         pending automatic rollback, e.g. when auto rollbacks are disabled or a rollback is already starting.
 
+        Pass quiet=True to skip the "Countdown to ... cancelled." messages (see cancel_timer()), e.g. when a rollback
+        is already starting and a "cancelled" message right before it could be misread as the rollback being stopped.
+
         Returns whether any countdown was cancelled."""
         if trigger is not None:
-            return self.cancel_timer(trigger=trigger)
+            return self.cancel_timer(trigger=trigger, quiet=quiet)
         with self.timers_lock:
             triggers = self.auto_rollback_countdown_triggers
-        cancelled = [self.cancel_timer(trigger=t) for t in triggers]
+        cancelled = [self.cancel_timer(trigger=t, quiet=quiet) for t in triggers]
         return any(cancelled)
 
     def is_auto_rollback_countdown_running(self) -> bool:
