@@ -242,19 +242,19 @@ def test_slack_api_call_error():
     assert resp['error'] == 'ValueError: error msg'
 
 
-def test_get_thread_permalink():
+def test_get_thread_link():
     sdp = DummySlackDeploymentProcess()
     sdp.slack_client.api_call.return_value = {'ok': True, 'permalink': 'https://x/p1'}
-    assert sdp.get_thread_permalink() == 'https://x/p1'
+    assert sdp.get_thread_link() == 'https://x/p1'
     sdp.slack_client.api_call.assert_called_with(
         'chat.getPermalink', channel='test', message_ts=10,
     )
 
 
-def test_get_thread_permalink_error():
+def test_get_thread_link_error():
     sdp = DummySlackDeploymentProcess()
     sdp.slack_client.api_call.return_value = {'ok': False, 'error': 'uh oh'}
-    assert sdp.get_thread_permalink() is None
+    assert sdp.get_thread_link() is None
 
 
 def test_dm_users():

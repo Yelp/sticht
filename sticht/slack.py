@@ -368,8 +368,8 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
         if resp['ok'] is not True:
             log_error(f"Posting to slack failed: {resp['error']}")
 
-    def get_thread_permalink(self) -> Optional[str]:
-        """Permalink to the deployment's Slack thread, or None if it can't be fetched."""
+    def get_thread_link(self) -> Optional[str]:
+        """Link to the deployment's Slack thread, or None if it can't be fetched."""
         channel_id = getattr(self, 'slack_channel_id', None)
         thread_ts = getattr(self, 'slack_ts', None)
         if not channel_id or not thread_ts:
@@ -383,7 +383,8 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
     def dm_users(self, messages_by_user: Dict[str, str]) -> None:
         """Sends each user their own Slack DM. Failures are logged and never raised,
-        so a failed DM can't interrupt a deployment."""
+        so a failed DM can't interrupt a deployment.
+        """
         for username, message in sorted(messages_by_user.items()):
             resp = self.slack_api_call(
                 'chat.postMessage', channel=f'@{username}', text=message,
