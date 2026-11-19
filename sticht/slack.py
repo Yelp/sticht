@@ -17,6 +17,7 @@ import json
 import logging
 import socket
 import traceback
+from typing import Dict
 from typing import List
 from typing import Optional
 
@@ -366,6 +367,30 @@ class SlackDeploymentProcess(DeploymentProcess, abc.ABC):
 
         if resp['ok'] is not True:
             log_error(f"Posting to slack failed: {resp['error']}")
+
+    def get_thread_link(self) -> Optional[str]:
+        """Link to the deployment's Slack thread, or None if it can't be fetched."""
+        channel_id = getattr(self, 'slack_channel_id', None)
+        thread_ts = getattr(self, 'slack_ts', None)
+        if not channel_id or not thread_ts:
+            return None
+        resp = self.slack_api_call(
+            'chat.getPermalink', channel=channel_id, message_ts=thread_ts,
+        )
+        if resp.get('ok') is not True:
+            return None
+        return resp.get('permalink')
+
+    def dm_users(self, messages_by_user: Dict[str, str]) -> None:
+        """Sends each user their own Slack DM. Failures are logged and never raised,
+        so a failed DM can't interrupt a deployment.
+        """
+        for username, message in sorted(messages_by_user.items()):
+            resp = self.slack_api_call(
+                'chat.postMessage', channel=f'@{username}', text=message,
+            )
+            if resp.get('ok') is not True:
+                log.warning(f"Could not DM {username}: {resp.get('error')}")
 
     def send_initial_slack_message(self):
         if self.slack_client is None:
