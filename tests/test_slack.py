@@ -242,6 +242,38 @@ def test_slack_api_call_error():
     assert resp['error'] == 'ValueError: error msg'
 
 
+def test_get_thread_permalink():
+    sdp = DummySlackDeploymentProcess()
+    sdp.slack_client.api_call.return_value = {'ok': True, 'permalink': 'https://x/p1'}
+    assert sdp.get_thread_permalink() == 'https://x/p1'
+    sdp.slack_client.api_call.assert_called_with(
+        'chat.getPermalink', channel='test', message_ts=10,
+    )
+
+
+def test_get_thread_permalink_error():
+    sdp = DummySlackDeploymentProcess()
+    sdp.slack_client.api_call.return_value = {'ok': False, 'error': 'uh oh'}
+    assert sdp.get_thread_permalink() is None
+
+
+def test_dm_users():
+    sdp = DummySlackDeploymentProcess()
+    sdp.dm_users({'bob': 'hi bob', 'alice': 'hi alice'})
+    calls = sdp.slack_client.api_call.call_args_list[-2:]
+    assert calls == [
+        mock.call('chat.postMessage', channel='@alice', text='hi alice'),
+        mock.call('chat.postMessage', channel='@bob', text='hi bob'),
+    ]
+
+
+def test_dm_users_failure_does_not_raise(caplog):
+    sdp = DummySlackDeploymentProcess()
+    sdp.slack_client.api_call.return_value = {'ok': False, 'error': 'uh oh'}
+    sdp.dm_users({'alice': 'hi'})
+    assert 'Could not DM alice: uh oh' in caplog.text
+
+
 def test_truncate_blocks_text():
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'A' * 5000}}]
     truncated = slack.truncate_blocks_text(blocks)
