@@ -270,3 +270,87 @@ def test_process_result_preexisting_alert_briefly_missing_stays_preexisting():
     individual_cb.assert_not_called()
     all_cb.assert_not_called()
     assert watcher.active_alerts == set()
+
+
+def test_first_poll_done_is_set_by_a_processed_poll():
+    watcher = _make_watcher()
+    assert not watcher.first_poll_done.is_set()
+
+    watcher.process_result([])
+
+    assert watcher.first_poll_done.is_set()
+
+
+def test_first_poll_done_is_not_set_when_the_poll_fails():
+    watcher = _make_watcher()
+    watcher._client.fetch_alerts.side_effect = Exception('alertmanager is down')
+
+    watcher.query()
+
+    assert not watcher.first_poll_done.is_set()
+
+
+def test_has_preexisting_alerts_and_cleared_callback():
+    cleared_cb = mock.Mock()
+    watcher = _make_watcher()
+    watcher.preexisting_alerts_cleared_callback = cleared_cb
+    assert not watcher.has_preexisting_alerts
+
+    watcher.process_result([_make_alert('OldAlert', 500.0)])
+    assert watcher.has_preexisting_alerts
+    cleared_cb.assert_not_called()
+
+    # a single missed poll isn't enough for the alert to count as resolved
+    watcher.process_result([])
+    assert watcher.has_preexisting_alerts
+    cleared_cb.assert_not_called()
+
+    poll_until_resolved(watcher)
+    assert not watcher.has_preexisting_alerts
+    cleared_cb.assert_called_once_with()
+
+    # ...and it only fires when something actually cleared
+    watcher.process_result([])
+    cleared_cb.assert_called_once_with()
+
+
+def test_cleared_callback_waits_for_every_preexisting_alert():
+    cleared_cb = mock.Mock()
+    watcher = _make_watcher()
+    watcher.preexisting_alerts_cleared_callback = cleared_cb
+    watcher.process_result([_make_alert('OldA', 500.0), _make_alert('OldB', 500.0)])
+
+    # OldA resolves but OldB keeps firing
+    for _ in range(MISSED_POLLS_BEFORE_RESOLVED):
+        watcher.process_result([_make_alert('OldB', 500.0)])
+    assert watcher.has_preexisting_alerts
+    cleared_cb.assert_not_called()
+
+    poll_until_resolved(watcher)
+    cleared_cb.assert_called_once_with()
+
+
+def test_preexisting_dry_run_alerts_do_not_count():
+    cleared_cb = mock.Mock()
+    watcher = _make_watcher()
+    watcher.preexisting_alerts_cleared_callback = cleared_cb
+
+    watcher.process_result([_make_alert('OldDryRun', 500.0, dry_run=True)])
+
+    # still listed as pre-existing, but they don't count
+    assert watcher.preexisting_alert_names == {'OldDryRun'}
+    assert not watcher.has_preexisting_alerts
+    cleared_cb.assert_not_called()
+
+    poll_until_resolved(watcher)
+    assert watcher.preexisting_alert_names == set()
+    assert watcher.preexisting_dry_run_fingerprints == set()
+    cleared_cb.assert_not_called()
+
+
+def test_new_alerts_never_count_as_preexisting():
+    watcher = _make_watcher()
+
+    watcher.process_result([_make_alert('NewAlert', 1500.0)])
+
+    assert not watcher.has_preexisting_alerts

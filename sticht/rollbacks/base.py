@@ -1,9 +1,13 @@
 import abc
+import asyncio
+from typing import Collection
 from typing import Dict
 from typing import FrozenSet
+from typing import Iterator
 from typing import List
 from typing import Optional
 
+from sticht.alertmanager import DEFAULT_ALERTMANAGER_TIMEOUT_S
 from sticht.rollbacks.slo import SLOWatcher
 from sticht.rollbacks.slo import watch_slos_for_service
 from sticht.rollbacks.sources.alertmanager import _DEFAULT_CHECK_INTERVAL_S
@@ -11,6 +15,12 @@ from sticht.rollbacks.sources.alertmanager import AlertManagerWatcher
 from sticht.rollbacks.sources.alertmanager import watch_alertmanager_alerts
 from sticht.slack import Emoji
 from sticht.slack import SlackDeploymentProcess
+from sticht.state_machine import TransitionDefinition
+
+# A gate we hold a deploy in while there are alerts firing from before it started
+ALERT_GATE_STATE = 'awaiting_alerts_clear'
+# How long it will wait for the AlertManager poll before giving up and deploying without a gate
+ALERT_GATE_FIRST_POLL_TIMEOUT_S = DEFAULT_ALERTMANAGER_TIMEOUT_S
 
 
 class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
@@ -154,6 +164,57 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
         Defaults to disabled: subclasses must override this to opt in."""
         return False
 
+    def alert_gate_enabled(self) -> bool:
+        """Whether to hold the deploy until alerts that predate it resolve (or a human clicks proceed).
+
+        Defaults to disabled: subclasses must override this to opt in."""
+        return False
+
+    def alert_gate_release_state(self) -> str:
+        """The state to deploy from once the gate is released (e.g., PaaSTA's start_deploy).
+
+        Subclasses that enable the gate must override this."""
+        raise NotImplementedError()
+
+    def extra_states(self) -> Collection['str']:
+        states = super().extra_states()
+        return [*states, ALERT_GATE_STATE] if self.alert_gate_enabled() else states
+
+    def extra_transitions(self) -> Iterator[TransitionDefinition]:
+        yield from super().extra_transitions()
+        if not self.alert_gate_enabled():
+            return
+        yield {
+            'source': self.start_state(), 'dest': ALERT_GATE_STATE, 'trigger': 'alert_gate_entered',
+            'before': self._on_alert_gate_entered,
+        }
+        for trigger in ('preexisting_alerts_cleared', 'proceed_button_clicked'):
+            yield {'source': ALERT_GATE_STATE, 'dest': self.alert_gate_release_state(), 'trigger': trigger}
+        # Outside of the gate, there's nothing to do
+        yield {'source': '*', 'dest': None, 'trigger': 'preexisting_alerts_cleared'}
+
+    async def before_start(self) -> None:
+        await super().before_start()
+        watcher = self.alertmanager_watcher
+        if not self.alert_gate_enabled() or watcher is None:
+            return
+        # If the first poll fails or is slow, we deploy without a gate (like before)
+        first_poll_done = await asyncio.get_event_loop().run_in_executor(
+            None, watcher.first_poll_done.wait, ALERT_GATE_FIRST_POLL_TIMEOUT_S,
+        )
+        if first_poll_done and watcher.has_preexisting_alerts:
+            self.trigger('alert_gate_entered')
+
+    def _on_alert_gate_entered(self) -> None:
+        self.update_slack_thread(
+            'Alerts are currently firing and auto-rollbacks will not work for this deploy until they resolve - '
+            'continue deploying anyway?',
+            color='danger',
+        )
+
+    def preexisting_alerts_cleared_callback(self) -> None:
+        self.trigger('preexisting_alerts_cleared')
+
     def start_alertmanager_watcher_threads(
         self,
         alertmanager_url: str,
@@ -168,6 +229,7 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
             all_alert_callback=self.all_alertmanager_callback,
             extra_monitoring_labels=extra_monitoring_labels,
             check_interval_s=check_interval_s,
+            preexisting_alerts_cleared_callback=self.preexisting_alerts_cleared_callback,
         )
 
     def any_slo_failing(self) -> bool:
@@ -228,9 +290,14 @@ class RollbackSlackDeploymentProcess(SlackDeploymentProcess, abc.ABC):
                 for alert_name in sorted(all_active):
                     components.append(f'{alert_name}\n')
             if preexisting:
+                consequence = (
+                    'and this deploy is waiting on them'
+                    if getattr(self, 'state', None) == ALERT_GATE_STATE
+                    else 'and will be ignored'
+                )
                 components.extend([
                     Emoji(':grimacing:'),
-                    f'{len(preexisting)} AlertManager alert(s) were firing before deploy, and will be ignored:\n',
+                    f'{len(preexisting)} AlertManager alert(s) were firing before deploy, {consequence}:\n',
                 ])
                 for alert_name in sorted(preexisting):
                     components.append(f'{alert_name}\n')
