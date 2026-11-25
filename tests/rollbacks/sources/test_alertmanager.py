@@ -281,13 +281,15 @@ def test_first_poll_done_is_set_by_a_processed_poll():
     assert watcher.first_poll_done.is_set()
 
 
-def test_first_poll_done_is_not_set_when_the_poll_fails():
+def test_first_poll_done_is_set_when_the_poll_fails():
     watcher = _make_watcher()
     watcher._client.fetch_alerts.side_effect = Exception('alertmanager is down')
 
     watcher.query()
 
-    assert not watcher.first_poll_done.is_set()
+    # a failed poll still ends the wait, and doesn't count as any alerts having been seen
+    assert watcher.first_poll_done.is_set()
+    assert not watcher.has_preexisting_alerts
 
 
 def test_has_preexisting_alerts_and_cleared_callback():

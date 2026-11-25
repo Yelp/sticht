@@ -105,7 +105,7 @@ class AlertManagerWatcher:
         self.all_alert_callback = all_alert_callback
         # Called when the last pre-existing alert resolves
         self.preexisting_alerts_cleared_callback = preexisting_alerts_cleared_callback
-        # Set after the first poll we processed successfully
+        # Set once the first poll has finished, even if it failed
         self.first_poll_done = threading.Event()
         self._client = AlertmanagerClient(alertmanager_url)
 
@@ -139,6 +139,8 @@ class AlertManagerWatcher:
                 # a partial result would make any alerts from the failed filter group(s) look resolved, so
                 # we'd rather keep our current state and try again next poll
                 log.warning(f'Skipping AlertManager poll result due to {api_errors} failed filter group(s)')
+                # Nothing to wait for: a deploy waiting on the first poll shouldn't be held up by a failure
+                self.first_poll_done.set()
             else:
                 self.process_result(all_alerts)
 
