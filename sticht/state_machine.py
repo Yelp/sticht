@@ -40,7 +40,8 @@ class TransitionDefinitionBase(TypedDict):
 
     trigger: str
     source: Union[str, List[str], Tuple[str, ...]]
-    dest: Union[str, List[str], Tuple[str, ...]]
+    # None keeps the machine in its current state
+    dest: Optional[Union[str, List[str], Tuple[str, ...]]]
 
 
 class TransitionDefinition(TransitionDefinitionBase, total=False):
@@ -109,8 +110,8 @@ class DeploymentProcess(abc.ABC):
 
         self.machine = transitions.extensions.LockedMachine(
             model=self,
-            states=list(self.states()),
-            transitions=list(self.valid_transitions()),
+            states=list(self.states()) + list(self.extra_states()),
+            transitions=list(self.valid_transitions()) + list(self.extra_transitions()),
             initial=self.start_state(),
             after_state_change=self.after_state_change,
             before_state_change=self.before_state_change,
@@ -154,8 +155,21 @@ class DeploymentProcess(abc.ABC):
     def run(self):
         return self.event_loop.run_until_complete(self.run_async())
 
+    def extra_states(self) -> Collection['str']:
+        """States that a base class adds on top of states()."""
+        return []
+
+    def extra_transitions(self) -> Iterator[TransitionDefinition]:
+        """Transitions that a base class adds on top of valid_transitions()."""
+        return iter(())
+
+    async def before_start(self) -> None:
+        """Runs before the start transition: a base class can use this to hold the deploy back."""
+
     async def run_async(self) -> int:
-        self.trigger(self.start_transition())
+        await self.before_start()
+        if self.state == self.start_state():
+            self.trigger(self.start_transition())
         await asyncio.wait_for(self.finished_event.wait(), timeout=self.run_timeout)
         return self.status_code_by_state().get(self.state, 3)
 

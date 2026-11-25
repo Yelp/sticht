@@ -3,6 +3,7 @@ import threading
 import time
 from datetime import datetime
 from datetime import timezone
+from typing import Callable
 from typing import Dict
 from typing import List
 from typing import NamedTuple
@@ -83,6 +84,7 @@ class AlertManagerWatcher:
         # that we'll want to add here later (see MISSED_POLLS_BEFORE_RESOLVED)
         check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
         deploy_start_time: Optional[float] = None,
+        preexisting_alerts_cleared_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         self.filters = filters
         self.check_interval_s = check_interval_s
@@ -95,15 +97,26 @@ class AlertManagerWatcher:
         self.firing_alerts: Dict[str, FiringAlert] = {}
         # fingerprint -> alertname
         self.preexisting_alerts: Dict[str, str] = {}
+        # Dry-run alerts can't trigger a rollback, so pre-existing ones don't hold a deploy back
+        self.preexisting_dry_run_fingerprints: Set[str] = set()
         # number of consecutive polls that a tracked alert has been missing for
         self.missed_polls: Dict[str, int] = {}
         self.individual_alert_callback = individual_alert_callback
         self.all_alert_callback = all_alert_callback
+        # Called when the last pre-existing alert resolves
+        self.preexisting_alerts_cleared_callback = preexisting_alerts_cleared_callback
+        # Set once the first poll has finished, even if it failed
+        self.first_poll_done = threading.Event()
         self._client = AlertmanagerClient(alertmanager_url)
 
     @property
     def preexisting_alert_names(self) -> Set[str]:
         return set(self.preexisting_alerts.values())
+
+    @property
+    def has_preexisting_alerts(self) -> bool:
+        """Whether any pre-existing alert could have triggered a rollback (i.e., isn't dry-run)."""
+        return any(f not in self.preexisting_dry_run_fingerprints for f in self.preexisting_alerts)
 
     def query(self) -> None:
         with metrics.create_timer(
@@ -126,6 +139,8 @@ class AlertManagerWatcher:
                 # a partial result would make any alerts from the failed filter group(s) look resolved, so
                 # we'd rather keep our current state and try again next poll
                 log.warning(f'Skipping AlertManager poll result due to {api_errors} failed filter group(s)')
+                # Nothing to wait for: a deploy waiting on the first poll shouldn't be held up by a failure
+                self.first_poll_done.set()
             else:
                 self.process_result(all_alerts)
 
@@ -144,6 +159,7 @@ class AlertManagerWatcher:
     ) -> None:
         # multiple filter groups can return the same alert, so dedupe by fingerprint
         seen = {alert['fingerprint']: alert for alert in alerts}
+        had_preexisting_alerts = self.has_preexisting_alerts
 
         for fingerprint, alert in seen.items():
             self.missed_polls.pop(fingerprint, None)
@@ -164,6 +180,8 @@ class AlertManagerWatcher:
 
             if starts_at < self.deploy_start_time:
                 self.preexisting_alerts[fingerprint] = alert['labels']['alertname']
+                if alert['labels'].get(_DRY_RUN_LABEL) == 'true':
+                    self.preexisting_dry_run_fingerprints.add(fingerprint)
                 continue
 
             self.firing_alerts[fingerprint] = FiringAlert(
@@ -178,6 +196,7 @@ class AlertManagerWatcher:
                 # (even if it was originally pre-existing)
                 del self.missed_polls[fingerprint]
                 self.preexisting_alerts.pop(fingerprint, None)
+                self.preexisting_dry_run_fingerprints.discard(fingerprint)
                 self.firing_alerts.pop(fingerprint, None)
 
         alerts_seen = {a.alertname for a in self.firing_alerts.values() if not a.dry_run}
@@ -189,6 +208,10 @@ class AlertManagerWatcher:
         previous_alerts = self.active_alerts
         self.active_dry_run_alerts = dry_run_alerts_seen
         self.active_alerts = alerts_seen
+        self.first_poll_done.set()
+
+        if had_preexisting_alerts and not self.has_preexisting_alerts and self.preexisting_alerts_cleared_callback:
+            self.preexisting_alerts_cleared_callback()
 
         # notify about newly failing dry-run alerts (informational only)
         for alertname in dry_run_alerts_seen - previous_dry_run_alerts:
@@ -223,6 +246,7 @@ def watch_alertmanager_alerts(
     all_alert_callback: AllAlertCallback,
     extra_monitoring_labels: Optional[Dict[str, str]] = None,
     check_interval_s: int = _DEFAULT_CHECK_INTERVAL_S,
+    preexisting_alerts_cleared_callback: Optional[Callable[[], None]] = None,
 ) -> Tuple[threading.Thread, AlertManagerWatcher]:
     watcher = AlertManagerWatcher(
         alertmanager_url=alertmanager_url,
@@ -231,6 +255,7 @@ def watch_alertmanager_alerts(
         all_alert_callback=all_alert_callback,
         check_interval_s=check_interval_s,
         extra_monitoring_labels=extra_monitoring_labels,
+        preexisting_alerts_cleared_callback=preexisting_alerts_cleared_callback,
     )
     thread = threading.Thread(target=watcher.watch, daemon=True)
     thread.start()
